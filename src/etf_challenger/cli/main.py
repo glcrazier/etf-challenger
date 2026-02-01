@@ -1380,9 +1380,9 @@ def recommend(strategy, top, industry, min_scale, detail):
                     performance = analyzer.analyze_performance(df)
                     
                     # 提取评分所需数据
-                    annual_return = float(performance['年化收益率'].rstrip('%'))
-                    volatility = float(performance['年化波动率'].rstrip('%'))
-                    max_drawdown = float(performance['最大回撤'].rstrip('%'))
+                    annual_return = float(performance['年化收益率(%)'])
+                    volatility = float(performance['年化波动率(%)'])
+                    max_drawdown = float(performance['最大回撤(%)'])
                     sharpe_ratio = float(performance['夏普比率'])
                     
                     # 获取费率
@@ -1445,7 +1445,8 @@ def recommend(strategy, top, industry, min_scale, detail):
                     })
                     
                 except Exception as e:
-                    # 跳过出错的ETF
+                    # 跳过出错的ETF，但记录错误信息
+                    console.print(f"[dim yellow]跳过 {candidate.code} {candidate.name}: {str(e)}[/dim yellow]")
                     continue
             
             progress.update(task, completed=True)
