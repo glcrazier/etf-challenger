@@ -12,6 +12,7 @@ A股场内ETF基金分析工具，提供实时行情监控、溢价/折价分析
 - **分析报告导出** 📄：生成Markdown/HTML/JSON格式的综合分析报告
 - **批量对比分析** 📊：同时对比多只ETF，综合评分排名
 - **ETF筛选器** 🎯：筛选流动性好、费率低的优质ETF
+- **批量投资建议** 🔥：一键生成池中所有ETF的买卖建议报告
 
 ## 快速开始
 
@@ -47,6 +48,12 @@ etf quote 510300
 etf screen                                # 默认筛选前10支
 etf screen --top 20 --min-scale 10       # 规模≥10亿的前20支
 etf screen --max-fee 0.50 --with-volume  # 低费率+成交量分析
+
+# 批量投资建议 🔥
+etf batch                                 # 使用默认池
+etf batch --pool 行业主题                 # 指定ETF池
+etf batch --format html -o report.html   # 生成HTML报告
+etf batch --list-pools                   # 查看所有池
 
 # 获取智能交易建议 ⭐
 etf suggest 510300
@@ -193,6 +200,65 @@ etf screen --top 15 --min-scale 20 --max-fee 0.50  # 组合条件
 - 行业轮动：`etf screen --min-scale 10 --max-fee 0.80`
 
 详见：[ETF筛选功能使用指南](ETF_SCREENING_GUIDE.md)
+
+### `etf batch` 🔥
+
+批量生成ETF投资建议报告
+
+从配置的ETF池中批量分析所有ETF，生成包含买入/卖出建议的综合报告。
+
+**选项**：
+- `--pool, -p`：ETF池名称（不指定则使用默认池）
+- `--days, -d`：分析天数（默认60）
+- `--output, -o`：输出文件路径
+- `--format, -f`：报告格式（markdown/html，默认markdown）
+- `--list-pools`：列出所有可用的ETF池
+
+**示例**：
+```bash
+etf batch                                # 使用默认池
+etf batch --pool 行业主题                # 指定池
+etf batch --format html -o report.html  # 生成HTML报告
+etf batch --list-pools                  # 查看所有池
+etf batch --days 90 --pool 宽基指数     # 自定义天数
+```
+
+**配置ETF池**：
+
+编辑 `etf_pool.json` 文件：
+```json
+{
+  "pools": {
+    "我的自选": {
+      "description": "自定义ETF池",
+      "etfs": ["510300", "510500", "159915"]
+    }
+  },
+  "default_pool": "我的自选"
+}
+```
+
+**报告内容**：
+- 📋 执行摘要（买入/卖出/持有统计）
+- 🟢 买入建议详情（强烈买入、买入）
+- 🟡 持有建议列表
+- 🔴 卖出建议详情（强烈卖出、卖出）
+- 📊 综合排名（按评分排序）
+- ⚠️ 风险提示
+
+**综合评分说明**：
+- 基于信号类型(40%)、置信度(20%)、年化收益(20%)、夏普比率(20%)
+- 评分范围: 0-100分
+- ≥70分: 良好标的
+- <50分: 弱势标的
+
+**使用场景**：
+- 每周投资复盘：`etf batch --pool 我的持仓`
+- 行业轮动决策：`etf batch --pool 行业主题`
+- 构建新组合：从多个池选择最佳标的
+- 定期调仓：根据买卖建议调整持仓
+
+详见：[批量报告功能使用指南](BATCH_GUIDE.md)
 
 ## 技术栈
 

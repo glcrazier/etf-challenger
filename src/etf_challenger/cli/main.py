@@ -411,6 +411,135 @@ def _display_trading_signal(code, name, signal, df):
 
 
 @cli.command()
+@click.option('--pool', '-p', default=None, help='ETF池名称(不指定则使用默认池)')
+@click.option('--days', '-d', default=60, help='分析天数')
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--format', '-f', type=click.Choice(['markdown', 'html']), default='markdown', help='报告格式')
+@click.option('--list-pools', is_flag=True, help='列出所有可用的ETF池')
+def batch(pool, days, output, format, list_pools):
+    """批量生成ETF投资建议报告
+
+    从配置的ETF池中批量分析所有ETF，生成综合投资建议报告。
+    报告包含买入/卖出建议、综合评分排名等。
+
+    示例:
+        etf batch                           # 使用默认池
+        etf batch --pool 行业主题           # 指定池
+        etf batch --format html -o report.html  # 生成HTML报告
+        etf batch --list-pools              # 查看所有池
+    """
+    from ..analysis.batch_reporter import BatchReportGenerator
+
+    try:
+        generator = BatchReportGenerator()
+
+        # 列出所有池
+        if list_pools:
+            pools = generator.get_pool_list()
+            console.print("\n[bold]可用的ETF池:[/bold]\n")
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("池名称", style="cyan")
+            table.add_column("描述")
+            table.add_column("ETF数量", justify="right")
+
+            for pool_name in pools:
+                pool_info = generator.config['pools'][pool_name]
+                table.add_row(
+                    pool_name,
+                    pool_info.get('description', 'N/A'),
+                    str(len(pool_info['etfs']))
+                )
+
+            console.print(table)
+            console.print(f"\n[dim]默认池: {generator.config.get('default_pool', 'N/A')}[/dim]")
+            console.print(f"[dim]配置文件: {generator.config_path}[/dim]\n")
+            return
+
+        # 生成报告
+        pool_name = pool or generator.config.get('default_pool', '宽基指数')
+
+        with Progress() as progress:
+            etf_codes = generator.get_pool_etfs(pool_name)
+            task = progress.add_task(
+                f"[cyan]正在分析 {len(etf_codes)} 只ETF...",
+                total=None
+            )
+
+            content, recommendations = generator.generate_batch_report(
+                pool_name=pool_name,
+                days=days,
+                output_format=format
+            )
+
+            progress.update(task, completed=True)
+
+        # 保存报告
+        if output:
+            output_path = output
+        else:
+            ext = 'md' if format == 'markdown' else 'html'
+            output_path = f"etf_batch_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        console.print(f"\n[green]✓ 批量报告已生成: {output_path}[/green]\n")
+
+        # 显示摘要
+        categorized = {}
+        for rec in recommendations:
+            if rec.signal_type not in categorized:
+                categorized[rec.signal_type] = []
+            categorized[rec.signal_type].append(rec)
+
+        console.print("[bold]📊 报告摘要[/bold]\n")
+        console.print(f"ETF池: {pool_name}")
+        console.print(f"分析天数: {days}天")
+        console.print(f"成功分析: {len(recommendations)}只\n")
+
+        # 分类统计
+        buy_count = len(categorized.get('强烈买入', [])) + len(categorized.get('买入', []))
+        sell_count = len(categorized.get('强烈卖出', [])) + len(categorized.get('卖出', []))
+        hold_count = len(categorized.get('持有', []))
+
+        console.print(f"[green]🟢 建议买入: {buy_count}只[/green]")
+        if categorized.get('强烈买入'):
+            console.print("  [bold green]强烈买入:[/bold green]")
+            for rec in categorized['强烈买入'][:3]:
+                console.print(f"    • {rec.name} ({rec.code}) - 评分 {rec.score:.1f}")
+
+        console.print(f"\n[yellow]🟡 建议持有: {hold_count}只[/yellow]")
+
+        console.print(f"\n[red]🔴 建议卖出: {sell_count}只[/red]")
+        if categorized.get('强烈卖出'):
+            console.print("  [bold red]强烈卖出:[/bold red]")
+            for rec in categorized['强烈卖出']:
+                console.print(f"    • {rec.name} ({rec.code}) - 评分 {rec.score:.1f}")
+
+        # 综合排名前3
+        if len(recommendations) >= 3:
+            console.print("\n[bold]🏆 综合评分Top3[/bold]\n")
+            for i, rec in enumerate(recommendations[:3], 1):
+                score_color = "green" if rec.score >= 70 else "yellow" if rec.score >= 50 else "red"
+                console.print(
+                    f"{i}. {rec.name} ({rec.code}) - "
+                    f"[{score_color}]{rec.score:.1f}分[/{score_color}] - "
+                    f"{rec.signal_type}"
+                )
+
+        console.print("\n[dim]详细报告请查看生成的文件[/dim]\n")
+
+    except FileNotFoundError as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        console.print("\n[yellow]提示: 请确保 etf_pool.json 配置文件存在[/yellow]")
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+@cli.command()
 @click.option('--top', '-t', default=10, help='返回前N支ETF')
 @click.option('--min-scale', '-s', default=5.0, help='最小规模(亿份)')
 @click.option('--max-fee', '-f', default=0.60, help='最大费率(%)')
