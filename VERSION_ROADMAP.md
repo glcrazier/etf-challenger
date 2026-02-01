@@ -14,25 +14,169 @@
 
 ---
 
-## 🚀 v1.1.0 (规划中)
+## 🚀 v1.1.0 (开发中) - 智能推荐系统
 
-### 待确定功能方向
+**发布目标**: 2026-02-15
+**开发重点**: 智能推荐与风险管理
 
-以下是一些可能的功能方向，请选择你最感兴趣的：
+### 核心功能 - 智能推荐系统 🤖
 
-#### 1. 数据可视化增强 📊
-- [ ] K线图表生成（使用matplotlib/plotly）
-- [ ] 技术指标可视化（MA/RSI/MACD图表）
-- [ ] 溢价率走势图
-- [ ] 持仓饼图/柱状图
-- [ ] 对比分析图表
+#### 1. 用户画像与偏好管理
+- [ ] 投资偏好配置（风格、行业、规模等）
+- [ ] 风险承受能力评估问卷
+- [ ] 投资目标设定（收益目标、时间周期）
+- [ ] 个人持仓记录与管理
+- [ ] 偏好学习与优化
 
-#### 2. 智能推荐系统 🤖
-- [ ] 基于用户偏好的个性化推荐
-- [ ] 风险承受能力评估
-- [ ] 智能组合构建（资产配置建议）
-- [ ] 止盈止损提醒
-- [ ] 异常波动预警
+#### 2. 智能ETF推荐引擎
+- [ ] 基于用户画像的个性化推荐
+- [ ] 多维度评分系统（收益、风险、流动性、费率）
+- [ ] 推荐理由解释（可解释AI）
+- [ ] 相似ETF发现与对比
+- [ ] 新基金上市推荐
+
+#### 3. 智能组合构建
+- [ ] 资产配置建议（股票/债券/黄金等比例）
+- [ ] 行业分散化分析
+- [ ] 组合风险评估（波动率、相关性）
+- [ ] 组合再平衡建议
+- [ ] 定投计划生成
+
+#### 4. 止盈止损管理
+- [ ] 动态止盈止损位计算
+- [ ] 持仓盈亏追踪
+- [ ] 止损触发提醒
+- [ ] 移动止盈策略
+- [ ] 分批止盈建议
+
+#### 5. 异常波动预警
+- [ ] 价格异常波动检测（±5%、±10%）
+- [ ] 成交量异常监控
+- [ ] 溢价率异常预警
+- [ ] 重大持仓变动提醒
+- [ ] 市场风险指数监控
+
+### 新增CLI命令
+
+```bash
+# 用户画像管理
+etf profile init              # 初始化用户画像（风险评估问卷）
+etf profile show              # 查看当前画像
+etf profile update            # 更新偏好设置
+
+# 智能推荐
+etf recommend                 # 基于画像的个性化推荐
+etf recommend --strategy conservative  # 保守型推荐
+etf recommend --strategy aggressive    # 激进型推荐
+etf recommend --industry 科技          # 特定行业推荐
+
+# 组合管理
+etf portfolio create          # 创建投资组合
+etf portfolio add 510300 --amount 10000  # 添加持仓
+etf portfolio analyze         # 组合分析（风险、收益、相关性）
+etf portfolio rebalance       # 再平衡建议
+etf portfolio track           # 持仓追踪与盈亏
+
+# 预警管理
+etf alert setup               # 配置预警规则
+etf alert list                # 查看所有预警
+etf alert check               # 手动检查预警
+```
+
+### 技术实现方案
+
+#### 1. 数据模型设计
+```python
+# 用户画像模型
+class UserProfile:
+    - risk_tolerance: str  # 保守/稳健/激进
+    - investment_goal: str  # 长期增值/短期收益/稳定分红
+    - preferred_industries: List[str]
+    - preferred_scale: str  # 大盘/中盘/小盘
+    - max_volatility: float
+    - min_liquidity_score: float
+
+# 投资组合模型
+class Portfolio:
+    - name: str
+    - positions: List[Position]
+    - target_allocation: Dict[str, float]
+    - rebalance_threshold: float
+
+# 持仓模型
+class Position:
+    - etf_code: str
+    - shares: int
+    - cost_basis: float
+    - stop_loss: float
+    - take_profit: float
+```
+
+#### 2. 推荐算法
+- **协同过滤**: 基于相似用户的投资偏好
+- **内容推荐**: 基于ETF特征（规模、行业、波动率等）
+- **混合推荐**: 结合技术指标和用户画像
+- **评分公式**:
+  ```
+  Score = w1*收益得分 + w2*风险匹配度 + w3*流动性 + w4*费率优势
+  权重根据用户画像动态调整
+  ```
+
+#### 3. 风险评估
+- **组合波动率**: 考虑相关性的综合波动率
+- **VaR计算**: 95%置信度下的最大损失
+- **压力测试**: 模拟市场下跌情景
+- **风险指标**: 夏普比率、最大回撤、下行风险
+
+#### 4. 数据存储
+```
+~/.etf_challenger/
+├── config/
+│   └── user_profile.json      # 用户画像
+├── portfolios/
+│   ├── default.json            # 默认组合
+│   └── custom_*.json           # 自定义组合
+├── alerts/
+│   └── rules.json              # 预警规则
+└── history/
+    └── recommendations.json    # 推荐历史
+```
+
+### 开发里程碑
+
+#### Phase 1: 用户画像 (Week 1)
+- [x] 设计用户画像数据模型
+- [ ] 实现风险评估问卷
+- [ ] 偏好配置命令
+- [ ] 画像存储与读取
+
+#### Phase 2: 推荐引擎 (Week 2)
+- [ ] 实现评分算法
+- [ ] 多维度特征提取
+- [ ] 推荐命令开发
+- [ ] 推荐理由生成
+
+#### Phase 3: 组合管理 (Week 3)
+- [ ] 组合数据模型
+- [ ] 持仓管理命令
+- [ ] 组合分析算法
+- [ ] 再平衡策略
+
+#### Phase 4: 预警系统 (Week 4)
+- [ ] 预警规则引擎
+- [ ] 异常检测算法
+- [ ] 通知机制（邮件/终端）
+- [ ] 预警日志
+
+#### Phase 5: 测试与优化 (Week 5)
+- [ ] 单元测试
+- [ ] 集成测试
+- [ ] 性能优化
+- [ ] 文档完善
+
+---
+
+## 🎯 v1.2.0 及未来 (待定)
 
 #### 3. 数据导出与集成 📤
 - [ ] Excel报表导出

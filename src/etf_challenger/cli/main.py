@@ -20,7 +20,7 @@ advisor = TradingAdvisor()
 
 
 @click.group()
-@click.version_option(version="1.0.0")
+@click.version_option(version="1.1.0-dev")
 def cli():
     """
     ETF Challenger - A股场内ETF基金分析工具
