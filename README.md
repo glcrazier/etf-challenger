@@ -10,6 +10,8 @@ A股场内ETF基金分析工具，提供实时行情监控、溢价/折价分析
 - **持仓成分分析**：查看ETF持仓股票、行业分布、集中度等
 - **智能交易建议** ⭐：综合多项技术指标，提供买入/卖出建议和目标价位
 - **分析报告导出** 📄：生成Markdown/HTML/JSON格式的综合分析报告
+- **批量对比分析** 📊：同时对比多只ETF，综合评分排名
+- **ETF筛选器** 🎯：筛选流动性好、费率低的优质ETF
 
 ## 快速开始
 
@@ -40,6 +42,11 @@ etf list 512880
 
 # 查看ETF实时行情
 etf quote 510300
+
+# 筛选优质ETF 🎯
+etf screen                                # 默认筛选前10支
+etf screen --top 20 --min-scale 10       # 规模≥10亿的前20支
+etf screen --max-fee 0.50 --with-volume  # 低费率+成交量分析
 
 # 获取智能交易建议 ⭐
 etf suggest 510300
@@ -149,6 +156,43 @@ etf holdings 512880 --limit 20 # 查看前20大持仓
 **显示信息**：
 - 持仓统计（总数、前5/10大权重）
 - 持仓明细（代码、名称、权重）
+
+### `etf screen` 🎯
+
+筛选流动性好、费率低的优质ETF
+
+**选项**：
+- `--top, -t`：返回前N支ETF（默认10）
+- `--min-scale, -s`：最小规模（亿份，默认5.0）
+- `--max-fee, -f`：最大费率（%，默认0.60）
+- `--with-volume, -v`：包含成交量分析（耗时较长）
+
+**示例**：
+```bash
+etf screen                                # 使用默认参数
+etf screen --top 20                      # 返回前20支
+etf screen --min-scale 10                # 规模≥10亿的ETF
+etf screen --max-fee 0.50                # 费率≤0.50%的ETF
+etf screen --with-volume                 # 包含成交量分析
+etf screen --top 15 --min-scale 20 --max-fee 0.50  # 组合条件
+```
+
+**显示信息**：
+- 排名表格（代码、名称、交易所、规模、流动性评分）
+- 统计信息（总规模、平均评分、平均成交额）
+- 流动性前三名详情
+
+**流动性评分说明**：
+- ≥80分：优秀，适合大额交易
+- 60-80分：良好，适合中等规模交易
+- <60分：一般，建议小额交易
+
+**使用场景**：
+- 构建核心持仓：`etf screen --min-scale 50 --max-fee 0.50`
+- 波段交易：`etf screen --min-scale 20 --with-volume`
+- 行业轮动：`etf screen --min-scale 10 --max-fee 0.80`
+
+详见：[ETF筛选功能使用指南](ETF_SCREENING_GUIDE.md)
 
 ## 技术栈
 

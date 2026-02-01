@@ -410,6 +410,131 @@ def _display_trading_signal(code, name, signal, df):
     console.print(f"  • 当前风险等级: [bold]{signal.risk_level}[/bold]")
 
 
+@cli.command()
+@click.option('--top', '-t', default=10, help='返回前N支ETF')
+@click.option('--min-scale', '-s', default=5.0, help='最小规模(亿份)')
+@click.option('--max-fee', '-f', default=0.60, help='最大费率(%)')
+@click.option('--with-volume', '-v', is_flag=True, help='包含成交量分析(耗时较长)')
+def screen(top, min_scale, max_fee, with_volume):
+    """筛选流动性好、费率低的ETF
+
+    根据基金规模和成交量筛选流动性最好的ETF。
+
+    示例:
+        etf screen                           # 使用默认参数
+        etf screen --top 20                  # 返回前20支
+        etf screen --min-scale 10            # 最小规模10亿份
+        etf screen --max-fee 0.50            # 最大费率0.50%
+        etf screen --with-volume             # 包含成交量分析
+    """
+    from ..analysis.screener import ETFScreener
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在筛选ETF...", total=None)
+
+            screener = ETFScreener()
+            results = screener.screen_etfs(
+                top_n=top,
+                min_scale=min_scale,
+                max_fee_rate=max_fee,
+                include_volume=with_volume,
+                etf_type='股票'
+            )
+
+            progress.update(task, completed=True)
+
+        if not results:
+            console.print("[yellow]未找到符合条件的ETF[/yellow]")
+            return
+
+        # 显示筛选结果
+        console.print(f"\n[green]✓ 找到 {len(results)} 支符合条件的ETF[/green]\n")
+        console.print(f"[dim]筛选条件: 最小规模 {min_scale}亿份, 最大费率 {max_fee}%[/dim]\n")
+
+        # 创建结果表格
+        table = Table(title="流动性优选ETF", show_header=True, header_style="bold magenta")
+        table.add_column("排名", style="cyan", justify="center")
+        table.add_column("代码", style="cyan")
+        table.add_column("名称")
+        table.add_column("交易所", justify="center")
+        table.add_column("规模(亿份)", justify="right")
+        table.add_column("流动性评分", justify="right")
+
+        if with_volume:
+            table.add_column("平均成交额(亿)", justify="right")
+
+        table.add_column("管理人")
+
+        for i, result in enumerate(results, 1):
+            # 流动性评分颜色
+            if result.liquidity_score >= 80:
+                score_color = "green"
+            elif result.liquidity_score >= 60:
+                score_color = "yellow"
+            else:
+                score_color = "white"
+
+            row_data = [
+                f"#{i}",
+                result.code,
+                result.name[:20],  # 限制名称长度
+                result.exchange,
+                f"{result.scale:.2f}",
+                f"[{score_color}]{result.liquidity_score:.1f}[/{score_color}]"
+            ]
+
+            if with_volume:
+                amount_str = f"{result.avg_amount:.2f}" if result.avg_amount else "N/A"
+                row_data.append(amount_str)
+
+            manager_str = result.fund_manager[:10] if result.fund_manager else "N/A"
+            row_data.append(manager_str)
+
+            table.add_row(*row_data)
+
+        console.print(table)
+
+        # 显示统计信息
+        console.print("\n[bold]📊 统计信息[/bold]\n")
+
+        total_scale = sum(r.scale for r in results)
+        avg_score = sum(r.liquidity_score for r in results) / len(results)
+
+        console.print(f"总规模: {total_scale:.2f} 亿份")
+        console.print(f"平均流动性评分: {avg_score:.1f}")
+
+        if with_volume:
+            valid_amounts = [r.avg_amount for r in results if r.avg_amount]
+            if valid_amounts:
+                avg_amount = sum(valid_amounts) / len(valid_amounts)
+                console.print(f"平均成交额: {avg_amount:.2f} 亿元/天")
+
+        # 推荐说明
+        console.print("\n[bold]💡 使用建议[/bold]\n")
+        console.print("• 流动性评分 >= 80: 优秀,适合大额交易")
+        console.print("• 流动性评分 60-80: 良好,适合中等规模交易")
+        console.print("• 流动性评分 < 60: 一般,建议小额交易")
+        console.print(f"• 当前筛选的ETF费率均 <= {max_fee}%")
+
+        # 显示前3名的详细信息
+        if len(results) >= 3:
+            console.print("\n[bold]🏆 流动性前三名[/bold]\n")
+            for i, result in enumerate(results[:3], 1):
+                console.print(f"{i}. {result.name} ({result.code})")
+                console.print(f"   规模: {result.scale:.2f}亿份, 评分: {result.liquidity_score:.1f}")
+                if result.avg_amount:
+                    console.print(f"   日均成交额: {result.avg_amount:.2f}亿元")
+                if result.fund_manager:
+                    console.print(f"   管理人: {result.fund_manager}")
+                console.print()
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
 if __name__ == '__main__':
     cli()
 
