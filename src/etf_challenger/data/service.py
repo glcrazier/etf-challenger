@@ -1,6 +1,7 @@
 """数据获取服务 - 基于akshare获取A股ETF数据"""
 
 import akshare as ak
+import baostock as bs
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -112,7 +113,6 @@ class ETFDataService:
             timestamp=datetime.now()
         )
 
-    @retry(max_attempts=5, delay=2.0, backoff=1.5)
     def get_historical_data(
         self,
         code: str,
@@ -122,10 +122,10 @@ class ETFDataService:
         """
         获取ETF历史行情数据
 
-        数据源: fund_etf_hist_em (东方财富)
-        - 通常稳定性95%+，但偶尔会出现连接问题
-        - 增加了重试次数(5次)和指数退避策略
-        - 使用缓存减少请求频率
+        数据源策略（多数据源自动切换）:
+        1. 优先: fund_etf_hist_em (东方财富) - 数据最全，但连接不稳定
+        2. 备用: BaoStock - 免费稳定，无需注册
+        - 使用缓存减少请求频率（1小时）
 
         Args:
             code: ETF代码
@@ -148,20 +148,128 @@ class ETFDataService:
             if cache_time and (datetime.now() - cache_time).seconds < 3600:
                 return self._hist_cache[cache_key]
 
-        # 获取ETF历史行情
-        df = ak.fund_etf_hist_em(
-            symbol=code,
-            period="daily",
-            start_date=start_date,
-            end_date=end_date,
-            adjust="qfq"  # 前复权
-        )
+        df = None
+        errors = []
+
+        # 优先尝试东方财富数据源（最多重试2次）
+        for attempt in range(2):
+            try:
+                df = ak.fund_etf_hist_em(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="qfq"  # 前复权
+                )
+                if df is not None and not df.empty:
+                    break
+            except Exception as e:
+                errors.append(f"东方财富(尝试{attempt+1}): {str(e)}")
+                if attempt == 0:
+                    import time
+                    time.sleep(1.0)
+
+        # 如果东方财富失败，切换到BaoStock
+        if df is None or df.empty:
+            try:
+                df = self._get_historical_data_from_baostock(code, start_date, end_date)
+            except Exception as e:
+                errors.append(f"BaoStock: {str(e)}")
+                raise Exception(f"所有数据源均失败: {'; '.join(errors)}")
+
+        if df is None or df.empty:
+            raise Exception(f"未获取到数据: {'; '.join(errors)}")
 
         # 更新缓存
         self._hist_cache[cache_key] = df
         self._hist_cache_time[cache_key] = datetime.now()
 
         return df
+
+    def _get_historical_data_from_baostock(
+        self,
+        code: str,
+        start_date: str,
+        end_date: str
+    ) -> pd.DataFrame:
+        """
+        从BaoStock获取历史数据（备用数据源）
+
+        Args:
+            code: ETF代码（如：510300）
+            start_date: 开始日期（格式：YYYYMMDD）
+            end_date: 结束日期（格式：YYYYMMDD）
+
+        Returns:
+            历史行情DataFrame（格式与akshare兼容）
+        """
+        # 转换ETF代码格式（510300 -> sh.510300 或 159915 -> sz.159915）
+        if code.startswith('51') or code.startswith('50'):
+            bs_code = f"sh.{code}"
+        elif code.startswith('15') or code.startswith('16'):
+            bs_code = f"sz.{code}"
+        else:
+            raise ValueError(f"无法识别的ETF代码: {code}")
+
+        # 转换日期格式（YYYYMMDD -> YYYY-MM-DD）
+        start_date_fmt = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
+        end_date_fmt = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+
+        # 登录BaoStock
+        lg = bs.login()
+        if lg.error_code != '0':
+            raise Exception(f"BaoStock登录失败: {lg.error_msg}")
+
+        try:
+            # 查询历史K线数据
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,code,open,high,low,close,volume,amount,turn",
+                start_date=start_date_fmt,
+                end_date=end_date_fmt,
+                frequency="d",
+                adjustflag="2"  # 2=前复权
+            )
+
+            if rs.error_code != '0':
+                raise Exception(f"BaoStock查询失败: {rs.error_msg}")
+
+            # 转换为DataFrame
+            data_list = []
+            while rs.next():
+                data_list.append(rs.get_row_data())
+
+            if not data_list:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data_list, columns=rs.fields)
+
+            # 转换数据格式以匹配akshare
+            df_converted = pd.DataFrame({
+                '日期': pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d'),
+                '开盘': pd.to_numeric(df['open'], errors='coerce'),
+                '收盘': pd.to_numeric(df['close'], errors='coerce'),
+                '最高': pd.to_numeric(df['high'], errors='coerce'),
+                '最低': pd.to_numeric(df['low'], errors='coerce'),
+                '成交量': pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype(int),
+                '成交额': pd.to_numeric(df['amount'], errors='coerce').fillna(0),
+                '振幅': 0.0,  # BaoStock无此字段
+                '涨跌幅': 0.0,  # 需要计算
+                '涨跌额': 0.0,  # 需要计算
+                '换手率': pd.to_numeric(df['turn'], errors='coerce').fillna(0),
+            })
+
+            # 计算涨跌幅和涨跌额
+            if len(df_converted) > 1:
+                df_converted['涨跌额'] = df_converted['收盘'].diff()
+                df_converted['涨跌幅'] = (df_converted['涨跌额'] / df_converted['收盘'].shift(1) * 100).round(2)
+                df_converted.loc[0, '涨跌额'] = 0
+                df_converted.loc[0, '涨跌幅'] = 0
+
+            return df_converted
+
+        finally:
+            bs.logout()
 
     @retry(max_attempts=3, delay=1.5)
     def get_etf_holdings(self, code: str, year: str = None) -> List[ETFHolding]:

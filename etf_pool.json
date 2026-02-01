@@ -1,55 +1,133 @@
 {
-  "description": "ETF投资池配置文件",
+  "description": "ETF投资池配置文件 - 基于筛选工具优选（2026-02-01更新）",
   "pools": {
     "宽基指数": {
-      "description": "主流宽基指数ETF，适合长期持有",
+      "description": "主流宽基指数ETF，规模大、流动性好，适合长期持有",
       "etfs": [
         "510300",
         "510500",
-        "159915",
-        "588000",
         "510050",
-        "159919"
-      ]
+        "159915",
+        "159919",
+        "159352",
+        "159338",
+        "159361",
+        "159949"
+      ],
+      "stats": {
+        "total_scale": "3100+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
     },
-    "行业主题": {
-      "description": "热门行业主题ETF，适合主题投资",
+    "医疗医药": {
+      "description": "医疗、医药、创新药、医疗器械等，规模778-125亿份",
       "etfs": [
-        "512690",
-        "512480",
-        "159928",
-        "512290",
-        "515880",
-        "512980"
-      ]
+        "512170",
+        "512010",
+        "159992",
+        "159883"
+      ],
+      "stats": {
+        "total_scale": "1730+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
     },
-    "金融地产": {
-      "description": "金融和地产行业ETF",
+    "科技创新": {
+      "description": "人工智能、芯片、软件、金融科技、科创板等，规模135-156亿份",
+      "etfs": [
+        "159819",
+        "159852",
+        "159995",
+        "588050",
+        "159851",
+        "159781"
+      ],
+      "stats": {
+        "total_scale": "845+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
+    },
+    "金融券商": {
+      "description": "证券、券商板块，规模208-241亿份",
       "etfs": [
         "512880",
-        "512000",
-        "515060"
-      ]
+        "512000"
+      ],
+      "stats": {
+        "total_scale": "450+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
     },
-    "新兴产业": {
-      "description": "新能源、科技等新兴产业",
+    "港股海外": {
+      "description": "港股通、恒生科技、纳指等境外市场，规模153-1004亿份",
       "etfs": [
-        "515030",
-        "516160",
-        "588000",
-        "159806"
-      ]
+        "159792",
+        "159636",
+        "159740",
+        "159570",
+        "159941"
+      ],
+      "stats": {
+        "total_scale": "2190+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
+    },
+    "消费能源": {
+      "description": "消费、化工、电池等主题，规模125-293亿份",
+      "etfs": [
+        "159928",
+        "159870",
+        "159755"
+      ],
+      "stats": {
+        "total_scale": "783+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
+    },
+    "精选组合": {
+      "description": "流动性前10名超大规模ETF，规模135-1004亿份，适合大额配置",
+      "etfs": [
+        "159792",
+        "510300",
+        "512170",
+        "510310",
+        "512010",
+        "510050",
+        "159636",
+        "159870",
+        "159352",
+        "159928"
+      ],
+      "stats": {
+        "total_scale": "5680+亿份",
+        "avg_liquidity": 100.0,
+        "update_date": "2026-02-01"
+      }
     },
     "自选": {
-      "description": "自定义ETF池，可以手动添加",
+      "description": "自定义ETF池，可以手动添加感兴趣的标的",
       "etfs": []
     }
   },
-  "default_pool": "宽基指数",
+  "default_pool": "精选组合",
   "batch_settings": {
     "analysis_days": 60,
     "max_concurrent": 5,
     "include_holdings": false,
     "include_premium": false
+  },
+  "screening_criteria": {
+    "min_scale_billion": 10.0,
+    "max_fee_percent": 0.6,
+    "min_liquidity_score": 100.0,
+    "last_update": "2026-02-01",
+    "total_etfs_screened": 30,
+    "data_source": "etf screen命令"
   }
 }
