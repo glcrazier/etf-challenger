@@ -45,9 +45,10 @@ etf list 512880
 etf quote 510300
 
 # 筛选优质ETF 🎯
-etf screen                                # 默认筛选前10支
-etf screen --top 20 --min-scale 10       # 规模≥10亿的前20支
-etf screen --max-fee 0.50 --with-volume  # 低费率+成交量分析
+etf screen                                # 默认筛选前10支(自动去重)
+etf screen --no-dedup                     # 关闭指数去重
+etf screen --top 20 --min-scale 10        # 规模≥10亿的前20支
+etf screen --max-fee 0.50 --with-volume   # 低费率+成交量分析
 
 # 批量投资建议 🔥
 etf batch                                 # 使用默认池
@@ -173,21 +174,24 @@ etf holdings 512880 --limit 20 # 查看前20大持仓
 - `--min-scale, -s`：最小规模（亿份，默认5.0）
 - `--max-fee, -f`：最大费率（%，默认0.60）
 - `--with-volume, -v`：包含成交量分析（耗时较长）
+- `--dedup/--no-dedup`：是否按指数去重（默认开启，相同指数只保留最优一支）
 
 **示例**：
 ```bash
-etf screen                                # 使用默认参数
-etf screen --top 20                      # 返回前20支
-etf screen --min-scale 10                # 规模≥10亿的ETF
-etf screen --max-fee 0.50                # 费率≤0.50%的ETF
-etf screen --with-volume                 # 包含成交量分析
+etf screen                                # 使用默认参数(自动去重)
+etf screen --no-dedup                     # 关闭指数去重
+etf screen --top 20                       # 返回前20支
+etf screen --min-scale 10                 # 规模≥10亿的ETF
+etf screen --max-fee 0.50                 # 费率≤0.50%的ETF
+etf screen --with-volume                  # 包含成交量分析
 etf screen --top 15 --min-scale 20 --max-fee 0.50  # 组合条件
 ```
 
 **显示信息**：
-- 排名表格（代码、名称、交易所、规模、流动性评分）
+- 排名表格（代码、名称、指数类型、交易所、规模、流动性评分）
 - 统计信息（总规模、平均评分、平均成交额）
 - 流动性前三名详情
+- 指数去重状态提示
 
 **流动性评分说明**：
 - ≥80分：优秀，适合大额交易

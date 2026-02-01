@@ -545,13 +545,16 @@ def batch(pool, days, output, format, list_pools):
 @click.option('--min-scale', '-s', default=5.0, help='最小规模(亿份)')
 @click.option('--max-fee', '-f', default=0.60, help='最大费率(%)')
 @click.option('--with-volume', '-v', is_flag=True, help='包含成交量分析(耗时较长)')
-def screen(top, min_scale, max_fee, with_volume):
+@click.option('--dedup/--no-dedup', default=True, help='是否按指数去重(默认开启)')
+def screen(top, min_scale, max_fee, with_volume, dedup):
     """筛选流动性好、费率低的ETF
 
     根据基金规模和成交量筛选流动性最好的ETF。
+    默认启用指数去重,相同指数只保留最优一支。
 
     示例:
-        etf screen                           # 使用默认参数
+        etf screen                           # 使用默认参数(去重)
+        etf screen --no-dedup                # 关闭去重
         etf screen --top 20                  # 返回前20支
         etf screen --min-scale 10            # 最小规模10亿份
         etf screen --max-fee 0.50            # 最大费率0.50%
@@ -569,7 +572,8 @@ def screen(top, min_scale, max_fee, with_volume):
                 min_scale=min_scale,
                 max_fee_rate=max_fee,
                 include_volume=with_volume,
-                etf_type='股票'
+                etf_type='股票',
+                dedup_by_index=dedup
             )
 
             progress.update(task, completed=True)
@@ -580,13 +584,18 @@ def screen(top, min_scale, max_fee, with_volume):
 
         # 显示筛选结果
         console.print(f"\n[green]✓ 找到 {len(results)} 支符合条件的ETF[/green]\n")
-        console.print(f"[dim]筛选条件: 最小规模 {min_scale}亿份, 最大费率 {max_fee}%[/dim]\n")
+        console.print(f"[dim]筛选条件: 最小规模 {min_scale}亿份, 最大费率 {max_fee}%[/dim]")
+        if dedup:
+            console.print(f"[dim]指数去重: 已启用(相同指数只保留最优一支)[/dim]\n")
+        else:
+            console.print(f"[dim]指数去重: 已关闭[/dim]\n")
 
         # 创建结果表格
         table = Table(title="流动性优选ETF", show_header=True, header_style="bold magenta")
         table.add_column("排名", style="cyan", justify="center")
         table.add_column("代码", style="cyan")
         table.add_column("名称")
+        table.add_column("指数类型", style="green")
         table.add_column("交易所", justify="center")
         table.add_column("规模(亿份)", justify="right")
         table.add_column("流动性评分", justify="right")
@@ -605,10 +614,14 @@ def screen(top, min_scale, max_fee, with_volume):
             else:
                 score_color = "white"
 
+            # 提取指数类型
+            index_type = screener.extract_index_name(result.name)
+
             row_data = [
                 f"#{i}",
                 result.code,
                 result.name[:20],  # 限制名称长度
+                index_type[:12],  # 限制指数类型长度
                 result.exchange,
                 f"{result.scale:.2f}",
                 f"[{score_color}]{result.liquidity_score:.1f}[/{score_color}]"

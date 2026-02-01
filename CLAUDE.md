@@ -71,6 +71,12 @@ etf analyze 510300 --days 90
 
 # 查看持仓成分
 etf holdings 510300 --year 2024
+
+# 筛选优质ETF（按流动性和费率）⭐
+etf screen                              # 使用默认参数(去重)
+etf screen --no-dedup                   # 关闭指数去重
+etf screen --top 20 --min-scale 10      # 返回前20支,最小规模10亿
+etf screen --with-volume                # 包含成交量分析
 ```
 
 ### 测试

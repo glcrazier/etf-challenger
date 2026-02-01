@@ -219,13 +219,68 @@ class ETFScreener:
         """
         return self.fee_rates.get(code, self.fee_rates['default'])
 
+    def extract_index_name(self, etf_name: str) -> str:
+        """
+        从ETF名称中提取指数类型
+
+        Args:
+            etf_name: ETF名称
+
+        Returns:
+            指数类型标识(归一化后)
+        """
+        # 常见指数映射表(按匹配优先级排序,越具体的越靠前)
+        index_patterns = [
+            ('创业板50', ['创业板50']),
+            ('科创50', ['科创50', '科创板50', 'KC50']),
+            ('半导体50', ['半导体50']),
+            ('沪深300', ['沪深300', '300ETF', 'HS300']),
+            ('中证500', ['中证500', '500ETF', 'ZZ500']),
+            ('上证50', ['上证50', '50ETF']),
+            ('创业板', ['创业板', '创业板指', 'CYBZ']),
+            ('科创板', ['科创板', '科创ETF']),
+            ('红利', ['红利', '股息']),
+            ('券商', ['证券', '券商']),
+            ('银行', ['银行']),
+            ('地产', ['地产', '房地产']),
+            ('消费', ['消费', '内需']),
+            ('医药', ['医药', '医疗', '生物']),
+            ('科技', ['科技']),
+            ('半导体', ['半导体', '芯片']),
+            ('通信', ['通信', '5G']),
+            ('军工', ['军工', '国防']),
+            ('新能源', ['新能源', '光伏', '锂电']),
+            ('白酒', ['白酒', '酒ETF']),
+            ('传媒', ['传媒', '文化']),
+            ('环保', ['环保']),
+            ('有色', ['有色金属', '有色']),
+            ('钢铁', ['钢铁']),
+            ('煤炭', ['煤炭']),
+            ('石油', ['石油', '油气']),
+            ('黄金', ['黄金', '黄金ETF']),
+            ('恒生', ['恒生', 'HSI']),
+            ('纳斯达克', ['纳斯达克', 'NASDAQ', 'NDX']),
+            ('标普', ['标普500', 'S&P']),
+        ]
+
+        # 提取指数名称(优先匹配更具体的模式)
+        for index_type, patterns in index_patterns:
+            for pattern in patterns:
+                if pattern in etf_name:
+                    return index_type
+
+        # 如果没有匹配到,返回原名称(去除"ETF"等后缀)
+        clean_name = etf_name.replace('ETF', '').replace('LOF', '').replace('联接', '').strip()
+        return clean_name
+
     def screen_etfs(
         self,
         top_n: int = 10,
         min_scale: float = 5.0,
         max_fee_rate: float = 0.60,
         include_volume: bool = True,
-        etf_type: str = '股票'
+        etf_type: str = '股票',
+        dedup_by_index: bool = True
     ) -> List[ETFScreeningResult]:
         """
         筛选ETF
@@ -236,6 +291,7 @@ class ETFScreener:
             max_fee_rate: 最大费率(%)
             include_volume: 是否包含成交量分析(耗时较长)
             etf_type: ETF类型筛选('股票'/'债券'/'货币'/None表示全部)
+            dedup_by_index: 是否按指数去重(相同指数只保留一支)
 
         Returns:
             筛选结果列表
@@ -300,4 +356,23 @@ class ETFScreener:
         # 按流动性评分排序,取前top_n支
         results.sort(key=lambda x: x.liquidity_score, reverse=True)
 
-        return results[:top_n]
+        # 按指数去重(相同指数只保留评分最高的一支)
+        if dedup_by_index:
+            deduplicated = []
+            seen_indexes = set()
+
+            for result in results:
+                index_name = self.extract_index_name(result.name)
+
+                # 如果该指数还没出现过,则加入结果
+                if index_name not in seen_indexes:
+                    deduplicated.append(result)
+                    seen_indexes.add(index_name)
+
+                    # 达到数量上限则停止
+                    if len(deduplicated) >= top_n:
+                        break
+
+            return deduplicated
+        else:
+            return results[:top_n]
