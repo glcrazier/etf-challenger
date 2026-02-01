@@ -1,0 +1,67 @@
+[scheduler]
+enabled = true
+timezone = "Asia/Shanghai"
+
+[watchlists]
+# 监控的ETF池列表
+pools = [
+    "宽基指数",
+    "医疗医药",
+    "科技创新",
+    "金融券商",
+    "港股海外",
+    "消费能源",
+    "精选组合"
+]
+
+[report]
+# 报告格式: html, markdown, json
+formats = ["html", "markdown", "json"]
+# 分析天数
+analysis_days = 60
+# 是否包含持仓分析（耗时较长）
+include_holdings = false
+# 是否包含溢价分析
+include_premium = true
+
+[storage]
+# 报告存储路径
+base_path = "~/.etf_challenger/reports"
+# 归档天数（超过此天数的报告将被压缩或删除）
+archive_after_days = 90
+# 最大存储空间（GB）
+max_storage_gb = 10
+
+[email]
+# 是否启用邮件通知
+enabled = true
+# SMTP服务器配置
+smtp_server = "smtp.163.com"
+smtp_port = 465
+use_ssl = true
+# 发件人邮箱（需配置）
+sender_email = ""
+# 发件人授权码（需配置，163邮箱授权码，非登录密码）
+sender_password = ""
+# 收件人列表（需配置）
+recipients = []
+# 发送每日汇总邮件
+send_daily_summary = true
+# 发送即时告警（暂未实现）
+send_immediate_alerts = false
+
+[market]
+# 早盘报告生成时间（开盘后30分钟）
+morning_report_time = "10:00"
+# 尾盘报告生成时间（收盘前30分钟）
+afternoon_report_time = "14:30"
+
+[logging]
+# 日志级别: DEBUG, INFO, WARNING, ERROR
+level = "INFO"
+# 日志文件路径
+file_path = "~/.etf_challenger/logs/scheduler.log"
+# 单个日志文件最大大小（MB）
+max_file_size_mb = 10
+# 日志文件备份数量
+backup_count = 5

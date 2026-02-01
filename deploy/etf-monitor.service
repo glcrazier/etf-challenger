@@ -1,0 +1,29 @@
+[Unit]
+Description=ETF Monitoring and Report Generation Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=etf
+Group=etf
+WorkingDirectory=/home/etf/etf-challenger
+Environment="PATH=/home/etf/etf-challenger/venv/bin:/usr/local/bin:/usr/bin:/bin"
+
+# 启动命令（前台运行）
+ExecStart=/home/etf/etf-challenger/venv/bin/python -m etf_challenger.cli.main monitor start
+
+# 重启策略
+Restart=on-failure
+RestartSec=10s
+
+# 日志输出
+StandardOutput=append:/home/etf/.etf_challenger/logs/stdout.log
+StandardError=append:/home/etf/.etf_challenger/logs/stderr.log
+
+# 资源限制
+MemoryLimit=1G
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 """命令行主程序"""
 
 import click
+from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -1038,3 +1039,250 @@ def _display_comparison_table(results):
 
         best_risk = min(results, key=lambda x: x.volatility)
         console.print(f"🛡️ [green]最低波动率[/green]: {best_risk.name} ({best_risk.code}) - {best_risk.volatility:.2f}%")
+
+
+@cli.group()
+def monitor():
+    """ETF定时监控和报告生成服务"""
+    pass
+
+
+@monitor.command()
+@click.option('--daemon', '-d', is_flag=True, help='后台运行（守护进程模式）')
+@click.option('--config', '-c', type=click.Path(), help='配置文件路径')
+def start(daemon, config):
+    """启动监控服务
+
+    示例:
+        etf monitor start                    # 前台运行
+        etf monitor start --daemon           # 后台运行
+        etf monitor start -c custom.toml     # 使用自定义配置
+    """
+    from ..scheduler.job_scheduler import ReportScheduler
+    from ..scheduler.daemon import MonitorDaemon
+    from ..config.scheduler_config import SchedulerConfig
+    import logging
+
+    # 配置日志
+    log_dir = Path.home() / '.etf_challenger' / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_dir / 'scheduler.log'),
+            logging.StreamHandler()
+        ]
+    )
+
+    if daemon:
+        console.print("[green]正在启动守护进程...[/green]")
+        daemon_process = MonitorDaemon(config)
+        success = daemon_process.start()
+        if success:
+            console.print("[green]✓ 监控服务已在后台启动[/green]")
+        else:
+            console.print("[red]✗ 守护进程启动失败[/red]")
+    else:
+        console.print("[cyan]启动监控服务（前台模式）...[/cyan]")
+        config_obj = SchedulerConfig.from_file(config) if config else SchedulerConfig.default()
+
+        # 验证配置
+        errors = config_obj.validate()
+        if errors:
+            console.print("[red]配置错误:[/red]")
+            for error in errors:
+                console.print(f"  - {error}")
+            console.print("\n[yellow]提示: 使用 'etf monitor config' 配置邮箱信息[/yellow]")
+            return
+
+        scheduler = ReportScheduler(config_obj)
+        scheduler.start()
+
+        console.print("[green]✓ 监控服务已启动[/green]")
+        console.print(f"早盘报告: 每个交易日 {config_obj.market.morning_report_time}")
+        console.print(f"尾盘报告: 每个交易日 {config_obj.market.afternoon_report_time}")
+        console.print("\n按 Ctrl+C 停止服务...")
+
+        try:
+            import time
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            scheduler.stop()
+            console.print("\n[yellow]监控服务已停止[/yellow]")
+
+
+@monitor.command()
+def stop():
+    """停止监控服务"""
+    from ..scheduler.daemon import MonitorDaemon
+
+    daemon = MonitorDaemon()
+    success = daemon.stop()
+
+    if success:
+        console.print("[green]✓ 监控服务已停止[/green]")
+    else:
+        console.print("[red]✗ 停止监控服务失败[/red]")
+
+
+@monitor.command()
+def status():
+    """查看监控服务状态"""
+    from ..scheduler.daemon import MonitorDaemon
+    from pathlib import Path
+
+    daemon = MonitorDaemon()
+    status_info = daemon.get_status()
+
+    console.print("\n[bold cyan]监控服务状态[/bold cyan]\n")
+
+    if status_info['running']:
+        console.print(f"运行状态: [green]运行中[/green]")
+        console.print(f"进程ID: {status_info['pid']}")
+
+        # 检查日志文件
+        log_file = Path.home() / '.etf_challenger' / 'logs' / 'scheduler.log'
+        if log_file.exists():
+            console.print(f"日志文件: {log_file}")
+            console.print(f"日志大小: {log_file.stat().st_size / 1024:.1f} KB")
+    else:
+        console.print(f"运行状态: [red]已停止[/red]")
+        console.print("[yellow]提示: 使用 'etf monitor start' 启动服务[/yellow]")
+
+
+@monitor.command()
+@click.option('--session', type=click.Choice(['morning', 'afternoon']), required=True, help='时段')
+@click.option('--pools', multiple=True, help='ETF池名称（不指定则生成所有池）')
+def trigger(session, pools):
+    """手动触发报告生成（不受调度限制）
+
+    示例:
+        etf monitor trigger --session morning
+        etf monitor trigger --session afternoon --pools 精选组合 --pools 宽基指数
+    """
+    from ..scheduler.report_job import ReportJob
+    from ..config.scheduler_config import SchedulerConfig
+
+    config = SchedulerConfig.default()
+
+    if pools:
+        config.watchlists.pools = list(pools)
+
+    job = ReportJob(config)
+
+    with console.status(f"[cyan]正在生成{session}报告...[/cyan]"):
+        result = job.execute(session)
+
+    if result.success:
+        console.print(f"[green]✓ 成功生成{result.reports_generated}个报告[/green]")
+        console.print(f"处理池: {result.pools_processed}个")
+        if result.summary_path:
+            console.print(f"汇总文件: {result.summary_path}")
+    else:
+        console.print(f"[red]✗ 报告生成失败[/red]")
+        for error in result.errors:
+            console.print(f"  - {error}")
+
+
+@monitor.command('config')
+@click.option('--email', prompt='发件邮箱', help='163邮箱地址')
+@click.option('--password', prompt='授权码', hide_input=True, help='163邮箱授权码')
+@click.option('--recipients', prompt='收件人（逗号分隔）', help='收件人邮箱列表')
+def configure(email, password, recipients):
+    """配置监控服务参数
+
+    注意: 163邮箱需要使用授权码，不是登录密码
+    获取授权码: 登录163邮箱 -> 设置 -> POP3/SMTP/IMAP -> 开启服务 -> 获取授权码
+    """
+    from ..config.scheduler_config import SchedulerConfig
+    from pathlib import Path
+
+    config = SchedulerConfig.default()
+    config.email.sender_email = email
+    config.email.sender_password = password
+    config.email.recipients = [r.strip() for r in recipients.split(',')]
+
+    config_path = Path.home() / '.etf_challenger' / 'config' / 'scheduler_config.toml'
+
+    config.save(config_path)
+
+    console.print(f"\n[green]✓ 配置已保存到: {config_path}[/green]\n")
+    console.print("配置摘要:")
+    console.print(f"  发件邮箱: {email}")
+    console.print(f"  收件人: {', '.join(config.email.recipients)}")
+    console.print(f"\n[yellow]提示: 请使用 'etf monitor test-email' 测试邮件配置[/yellow]")
+
+
+@monitor.command('test-email')
+def test_email():
+    """发送测试邮件"""
+    from ..config.scheduler_config import SchedulerConfig
+    from ..notification.email_service import EmailService
+
+    try:
+        config = SchedulerConfig.from_file()
+
+        # 验证配置
+        errors = config.email.validate()
+        if errors:
+            console.print("[red]邮件配置错误:[/red]")
+            for error in errors:
+                console.print(f"  - {error}")
+            console.print("\n[yellow]请先使用 'etf monitor config' 配置邮箱信息[/yellow]")
+            return
+
+        email_service = EmailService(config.email)
+
+        with console.status("[cyan]正在发送测试邮件...[/cyan]"):
+            email_service.send_test_email()
+
+        console.print("[green]✓ 测试邮件已发送，请检查收件箱[/green]")
+
+    except Exception as e:
+        console.print(f"[red]✗ 发送失败: {e}[/red]")
+
+
+@monitor.command()
+@click.option('--date', type=click.DateTime(formats=['%Y-%m-%d']), help='日期（默认今天）')
+@click.option('--session', type=click.Choice(['morning', 'afternoon']), help='时段（不指定则显示全天）')
+def reports(date, session):
+    """查看已生成的报告列表"""
+    from ..storage.report_storage import ReportStorage
+    from pathlib import Path
+
+    storage = ReportStorage()
+    target_date = date or datetime.now()
+
+    report_files = storage.list_reports(target_date, session)
+
+    if not report_files:
+        console.print(f"[yellow]未找到{target_date:%Y-%m-%d}的报告[/yellow]")
+        return
+
+    table = Table(title=f"报告列表 - {target_date:%Y-%m-%d}")
+    table.add_column("时段", style="cyan")
+    table.add_column("ETF池", style="green")
+    table.add_column("格式", style="yellow")
+    table.add_column("文件大小", style="magenta")
+    table.add_column("路径", style="blue")
+
+    for report_file in report_files:
+        # 解析文件名: 精选组合_20260201_1000.html
+        parts = report_file.stem.split('_')
+        if len(parts) >= 3:
+            pool_name = parts[0]
+            time_part = parts[2]
+            session_name = 'morning' if int(time_part) < 1200 else 'afternoon'
+
+            table.add_row(
+                session_name,
+                pool_name,
+                report_file.suffix[1:],
+                f"{report_file.stat().st_size / 1024:.1f} KB",
+                str(report_file)
+            )
+
+    console.print(table)
