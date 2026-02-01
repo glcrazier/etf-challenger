@@ -1,6 +1,6 @@
 [project]
 name = "etf-challenger"
-version = "1.1.0-dev"
+version = "1.1.0"
 description = "A股场内ETF基金分析工具 - 提供实时行情、溢价分析、历史数据分析和持仓成分分析"
 authors = [
     { name = "ETF Challenger Team" }

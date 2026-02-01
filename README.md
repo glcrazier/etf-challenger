@@ -5,6 +5,7 @@ A股场内ETF基金分析工具，提供实时行情监控、溢价/折价分析
 ## 功能特性
 
 - **实时行情监控**：查看ETF最新价格、涨跌幅、成交量等实时数据
+- **智能ETF推荐** 🌟：基于多维度评分系统，智能筛选优质ETF（v1.1.0新增）
 - **溢价/折价分析**：计算ETF市价与净值的偏离度，发现套利机会
 - **历史数据分析**：技术指标分析、收益率计算、风险评估
 - **持仓成分分析**：查看ETF持仓股票、行业分布、集中度等
@@ -43,6 +44,12 @@ etf list 512880
 
 # 查看ETF实时行情
 etf quote 510300
+
+# 智能ETF推荐 🌟 (v1.1.0新增)
+etf recommend                                 # 默认策略(稳健型)推荐
+etf recommend --strategy conservative         # 保守型推荐
+etf recommend --strategy aggressive --top 5   # 激进型推荐前5支
+etf recommend --industry 科技 --detail        # 科技行业推荐(详细)
 
 # 筛选优质ETF 🎯
 etf screen                                # 默认筛选前10支(自动去重)
@@ -190,6 +197,44 @@ etf screen --top 15 --min-scale 20 --max-fee 0.50  # 组合条件
 **显示信息**：
 - 排名表格（代码、名称、指数类型、交易所、规模、流动性评分）
 - 统计信息（总规模、平均评分、平均成交额）
+
+### `etf recommend` 🌟
+
+智能ETF推荐 - 基于多维度评分系统智能筛选优质ETF（v1.1.0新增）
+
+**选项**：
+- `--strategy, -s`：推荐策略（conservative/balanced/aggressive，默认balanced）
+- `--top, -t`：返回前N支推荐（默认10）
+- `--industry, -i`：筛选特定行业（可多选）
+- `--min-scale`：最小规模（亿份，默认10.0）
+- `--detail`：显示详细评分明细
+
+**推荐策略**：
+- **conservative（保守型）**：注重风险控制和流动性
+  - 权重配置：风险35% 流动性25% 收益20% 费率15% 技术5%
+- **balanced（稳健型）**：收益与风险平衡（默认）
+  - 权重配置：收益30% 风险25% 流动性20% 费率15% 技术10%
+- **aggressive（激进型）**：追求高收益，技术面权重高
+  - 权重配置：收益45% 技术20% 流动性15% 费率10% 风险10%
+
+**示例**：
+```bash
+etf recommend                                    # 默认策略推荐
+etf recommend --strategy conservative            # 保守型推荐
+etf recommend --strategy aggressive --top 5      # 激进型推荐前5支
+etf recommend --industry 科技                    # 科技行业推荐
+etf recommend --industry 科技 --industry 医药    # 多个行业推荐
+etf recommend --detail                           # 显示详细评分
+```
+
+**显示信息**：
+- 综合评分（0-100分）
+- 推荐理由（3-5条）
+- 风险提示
+- 置信度等级
+- 详细评分明细（可选）
+
+💡 详细使用说明请查看：[docs/recommend_usage.md](docs/recommend_usage.md)
 - 流动性前三名详情
 - 指数去重状态提示
 
