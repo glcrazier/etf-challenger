@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from ..data.service import ETFDataService
 from ..analysis.analyzer import ETFAnalyzer
 from ..analysis.advisor import TradingAdvisor, SignalType
+from ..recommendation.scorer import ETFScorer, ScoringStrategy
+from ..recommendation.explainer import RecommendationExplainer
 from ..utils.helpers import format_number, format_percentage, get_color_by_value
 
 console = Console()
@@ -1299,3 +1301,237 @@ def reports(date, session):
             )
 
     console.print(table)
+
+@cli.command()
+@click.option('--strategy', '-s', 
+              type=click.Choice(['conservative', 'balanced', 'aggressive']), 
+              default='balanced',
+              help='推荐策略（保守/稳健/激进）')
+@click.option('--top', '-t', default=10, help='返回前N支推荐')
+@click.option('--industry', '-i', multiple=True, help='筛选特定行业（可多选）')
+@click.option('--min-scale', default=10.0, help='最小规模（亿份）')
+@click.option('--detail', is_flag=True, help='显示详细评分明细')
+def recommend(strategy, top, industry, min_scale, detail):
+    """智能ETF推荐
+
+    基于多维度评分系统（收益、风险、流动性、费率、技术面）为您推荐优质ETF。
+    支持三种推荐策略，满足不同风险偏好。
+
+    示例：
+        etf recommend                            # 稳健型推荐
+        etf recommend --strategy conservative    # 保守型推荐
+        etf recommend --strategy aggressive      # 激进型推荐
+        etf recommend --top 20                   # 返回前20支
+        etf recommend --industry 科技 医药       # 特定行业
+        etf recommend --detail                   # 显示详细评分
+    """
+    from ..analysis.screener import ETFScreener
+    
+    try:
+        # 初始化评分器和解释器
+        strategy_enum = {
+            'conservative': ScoringStrategy.CONSERVATIVE,
+            'balanced': ScoringStrategy.BALANCED,
+            'aggressive': ScoringStrategy.AGGRESSIVE
+        }[strategy]
+        
+        scorer = ETFScorer(strategy=strategy_enum)
+        explainer = RecommendationExplainer()
+        screener = ETFScreener()
+        
+        with Progress() as progress:
+            task = progress.add_task(f"[cyan]正在分析ETF并生成推荐...", total=None)
+            
+            # 1. 获取候选ETF列表（使用筛选器，带去重）
+            candidates = screener.screen_etfs(
+                top_n=top * 3,  # 多获取一些用于后续评分排序
+                min_scale=min_scale,
+                max_fee_rate=0.6,
+                include_volume=False,
+                etf_type='股票',
+                dedup_by_index=True
+            )
+            
+            if not candidates:
+                console.print("[yellow]未找到符合条件的ETF[/yellow]")
+                return
+            
+            # 2. 对每个ETF进行详细评分
+            recommendations = []
+            
+            for candidate in candidates:
+                try:
+                    # 获取历史数据和技术指标
+                    end_date = datetime.now().strftime("%Y%m%d")
+                    start_date = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
+                    
+                    df = data_service.get_historical_data(candidate.code, start_date, end_date)
+                    
+                    if df.empty:
+                        continue
+                    
+                    # 计算技术指标
+                    df = analyzer.calculate_returns(df)
+                    df = analyzer.calculate_moving_averages(df)
+                    df = analyzer.calculate_rsi(df)
+                    df = analyzer.calculate_macd(df)
+                    
+                    # 分析表现指标
+                    performance = analyzer.analyze_performance(df)
+                    
+                    # 提取评分所需数据
+                    annual_return = float(performance['年化收益率'].rstrip('%'))
+                    volatility = float(performance['年化波动率'].rstrip('%'))
+                    max_drawdown = float(performance['最大回撤'].rstrip('%'))
+                    sharpe_ratio = float(performance['夏普比率'])
+                    
+                    # 获取费率
+                    fee_rate = screener.get_fee_rate(candidate.code)
+                    
+                    # 计算评分
+                    score_breakdown = scorer.calculate_score(
+                        etf_code=candidate.code,
+                        etf_name=candidate.name,
+                        annual_return=annual_return,
+                        sharpe_ratio=sharpe_ratio,
+                        volatility=volatility,
+                        max_drawdown=max_drawdown,
+                        scale=candidate.scale,
+                        liquidity_score=candidate.liquidity_score,
+                        fee_rate=fee_rate,
+                        df=df
+                    )
+                    
+                    # 生成推荐理由
+                    reasons = explainer.generate_reasons(
+                        etf_code=candidate.code,
+                        etf_name=candidate.name,
+                        score_breakdown=score_breakdown,
+                        annual_return=annual_return,
+                        volatility=volatility,
+                        scale=candidate.scale,
+                        fee_rate=fee_rate
+                    )
+                    
+                    # 生成风险提示
+                    warnings = explainer.generate_risk_warnings(
+                        score_breakdown=score_breakdown,
+                        annual_return=annual_return,
+                        volatility=volatility,
+                        max_drawdown=max_drawdown
+                    )
+                    
+                    # 生成置信度
+                    confidence = explainer.generate_confidence_level(score_breakdown)
+                    
+                    # 行业筛选
+                    if industry:
+                        index_type = screener.extract_index_name(candidate.name)
+                        if not any(ind in index_type or ind in candidate.name for ind in industry):
+                            continue
+                    
+                    recommendations.append({
+                        'code': candidate.code,
+                        'name': candidate.name,
+                        'score_breakdown': score_breakdown,
+                        'reasons': reasons,
+                        'warnings': warnings,
+                        'confidence': confidence,
+                        'annual_return': annual_return,
+                        'volatility': volatility,
+                        'scale': candidate.scale,
+                        'fee_rate': fee_rate,
+                        'index_type': screener.extract_index_name(candidate.name)
+                    })
+                    
+                except Exception as e:
+                    # 跳过出错的ETF
+                    continue
+            
+            progress.update(task, completed=True)
+        
+        # 3. 按评分排序
+        recommendations.sort(key=lambda x: x['score_breakdown'].total_score, reverse=True)
+        recommendations = recommendations[:top]
+        
+        if not recommendations:
+            console.print("[yellow]未找到符合条件的推荐ETF[/yellow]")
+            return
+        
+        # 4. 显示推荐结果
+        _display_recommendations(recommendations, scorer, detail)
+        
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+def _display_recommendations(recommendations, scorer, show_detail):
+    """显示推荐结果"""
+    
+    # 标题面板
+    strategy_desc = scorer.get_strategy_description()
+    header = f"""
+[bold cyan]智能ETF推荐[/bold cyan]
+
+策略: {strategy_desc}
+推荐数量: {len(recommendations)}支
+更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    """
+    console.print(Panel(header.strip(), border_style="cyan"))
+    
+    # 推荐列表
+    for i, rec in enumerate(recommendations, 1):
+        score = rec['score_breakdown']
+        
+        # 根据评分确定颜色
+        if score.total_score >= 80:
+            score_color = "green"
+            score_icon = "🌟"
+        elif score.total_score >= 70:
+            score_color = "yellow"
+            score_icon = "⭐"
+        else:
+            score_color = "white"
+            score_icon = "✦"
+        
+        # ETF信息面板
+        info = f"""
+[bold]{score_icon} #{i} {rec['name']}[/bold] ({rec['code']})
+
+[{score_color}]综合评分: {score.total_score:.1f}分[/{score_color}]  |  置信度: {rec['confidence'][0]}
+指数类型: {rec['index_type']}  |  规模: {rec['scale']:.0f}亿份  |  费率: {rec['fee_rate']:.2f}%
+
+[bold green]✓ 推荐理由:[/bold green]
+"""
+        for reason in rec['reasons']:
+            info += f"  {reason}\n"
+        
+        # 风险提示
+        if rec['warnings']:
+            info += "\n[bold yellow]⚠ 风险提示:[/bold yellow]\n"
+            for warning in rec['warnings']:
+                info += f"  {warning}\n"
+        
+        # 详细评分
+        if show_detail:
+            info += f"""
+[bold]📊 评分明细:[/bold]
+  收益潜力: {score.return_score:.1f}  风险评估: {score.risk_score:.1f}
+  流动性: {score.liquidity_score:.1f}  费率优势: {score.fee_score:.1f}  技术面: {score.technical_score:.1f}
+
+[dim]年化收益: {rec['annual_return']:+.1f}%  |  波动率: {rec['volatility']:.1f}%[/dim]
+"""
+        
+        console.print(Panel(info.strip(), border_style=score_color))
+        console.print()
+    
+    # 使用说明
+    console.print("[bold]💡 使用建议[/bold]")
+    console.print("  • 综合评分 ≥80: 强烈推荐，各项指标优秀")
+    console.print("  • 综合评分 70-80: 推荐，整体表现良好")
+    console.print("  • 综合评分 <70: 谨慎，建议深入研究")
+    console.print()
+    console.print("[dim]提示: 使用 --detail 选项查看详细评分明细[/dim]")
+    console.print("[dim]提示: 推荐结果仅供参考，投资需谨慎[/dim]")
