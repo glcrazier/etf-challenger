@@ -1,0 +1,368 @@
+"""分析报告生成器"""
+
+from dataclasses import dataclass, asdict
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+import json
+import pandas as pd
+
+from ..models.etf import ETFQuote, ETFHolding
+from ..analysis.advisor import TradingSignal
+
+
+@dataclass
+class ETFAnalysisReport:
+    """ETF综合分析报告"""
+    # 基本信息
+    code: str
+    name: str
+    report_date: str
+
+    # 实时行情
+    quote: Optional[Dict[str, Any]] = None
+
+    # 技术分析
+    performance: Optional[Dict[str, float]] = None
+    technical_indicators: Optional[Dict[str, float]] = None
+
+    # 交易建议
+    trading_signal: Optional[Dict[str, Any]] = None
+
+    # 持仓信息
+    holdings: Optional[List[Dict[str, Any]]] = None
+    holdings_summary: Optional[Dict[str, Any]] = None
+
+    # 溢价分析
+    premium_analysis: Optional[Dict[str, Any]] = None
+
+    # 历史数据
+    recent_prices: Optional[List[Dict[str, float]]] = None
+
+
+class ReportGenerator:
+    """报告生成器"""
+
+    def __init__(self):
+        self.report_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def generate_markdown(self, report: ETFAnalysisReport) -> str:
+        """生成Markdown格式报告"""
+        md = []
+
+        # 标题
+        md.append(f"# {report.name} ({report.code}) 分析报告\n")
+        md.append(f"**报告生成时间**: {report.report_date}\n")
+        md.append("---\n")
+
+        # 实时行情
+        if report.quote:
+            md.append("## 📊 实时行情\n")
+            q = report.quote
+            change_emoji = "📈" if q['change_pct'] > 0 else "📉" if q['change_pct'] < 0 else "➡️"
+            md.append(f"- **最新价**: {q['price']:.3f}")
+            md.append(f"- **涨跌幅**: {change_emoji} {q['change_pct']:+.2f}%")
+            md.append(f"- **涨跌额**: {q['change']:+.3f}")
+            md.append(f"- **开盘价**: {q['open_price']:.3f}")
+            md.append(f"- **最高价**: {q['high']:.3f}")
+            md.append(f"- **最低价**: {q['low']:.3f}")
+            md.append(f"- **昨收价**: {q['pre_close']:.3f}")
+            md.append(f"- **成交量**: {self._format_number(q['volume'])}")
+            md.append(f"- **成交额**: {self._format_number(q['amount'])}\n")
+
+        # 交易建议
+        if report.trading_signal:
+            md.append("## 🎯 交易建议\n")
+            ts = report.trading_signal
+            signal_emoji = self._get_signal_emoji(ts['signal_type'])
+            md.append(f"### {signal_emoji} {ts['signal_type']}\n")
+            md.append(f"- **置信度**: {ts['confidence']:.0f}%")
+            md.append(f"- **风险等级**: {ts['risk_level']}\n")
+
+            if ts.get('price_target') or ts.get('stop_loss'):
+                md.append("#### 💰 价格参考\n")
+                if ts.get('price_target'):
+                    md.append(f"- **目标价位**: {ts['price_target']:.3f}")
+                if ts.get('stop_loss'):
+                    md.append(f"- **止损价位**: {ts['stop_loss']:.3f}\n")
+
+            md.append("#### 📝 分析依据\n")
+            for reason in ts['reasons']:
+                md.append(f"- {reason}")
+            md.append("")
+
+            md.append("#### 📈 技术指标状态\n")
+            md.append("| 指标 | 状态 |")
+            md.append("|------|------|")
+            for indicator, status in ts['indicators'].items():
+                status_display = self._get_status_display(status)
+                md.append(f"| {indicator} | {status_display} |")
+            md.append("")
+
+        # 历史表现
+        if report.performance:
+            md.append("## 📈 历史表现\n")
+            perf = report.performance
+            md.append("| 指标 | 数值 |")
+            md.append("|------|------|")
+            for key, value in perf.items():
+                if key == '交易天数':
+                    md.append(f"| {key} | {value} |")
+                else:
+                    md.append(f"| {key} | {value} |")
+            md.append("")
+
+        # 技术指标
+        if report.technical_indicators:
+            md.append("## 🔧 技术指标\n")
+            ti = report.technical_indicators
+            md.append("| 指标 | 当前值 |")
+            md.append("|------|--------|")
+            for key, value in ti.items():
+                if value is not None and not pd.isna(value):
+                    md.append(f"| {key} | {value:.2f} |")
+            md.append("")
+
+        # 溢价分析
+        if report.premium_analysis:
+            md.append("## 💎 溢价/折价分析\n")
+            pa = report.premium_analysis
+            md.append(f"- **当前溢价率**: {pa['current_premium']:.2f}%")
+            md.append(f"- **平均溢价率**: {pa['avg_premium']:.2f}%")
+            md.append(f"- **最高溢价率**: {pa['max_premium']:.2f}%")
+            md.append(f"- **最低溢价率**: {pa['min_premium']:.2f}%")
+
+            if pa['current_premium'] < -1:
+                md.append(f"\n💡 **提示**: 当前处于折价状态，可能存在买入机会")
+            elif pa['current_premium'] > 1:
+                md.append(f"\n⚠️ **提示**: 当前处于溢价状态，需谨慎买入")
+            md.append("")
+
+        # 持仓信息
+        if report.holdings_summary:
+            md.append("## 📊 持仓分析\n")
+            hs = report.holdings_summary
+            md.append(f"- **持仓数量**: {hs['持仓数量']}")
+            md.append(f"- **前5大持仓权重**: {hs['前5大持仓权重(%)']}%")
+            md.append(f"- **前10大持仓权重**: {hs['前10大持仓权重(%)']}%\n")
+
+            if report.holdings:
+                md.append("### 前10大持仓\n")
+                md.append("| 排名 | 代码 | 名称 | 权重 |")
+                md.append("|------|------|------|------|")
+                for i, holding in enumerate(report.holdings[:10], 1):
+                    md.append(f"| {i} | {holding['code']} | {holding['name']} | {holding['weight']:.2f}% |")
+                md.append("")
+
+        # 最近交易日
+        if report.recent_prices:
+            md.append("## 📅 近期走势\n")
+            md.append("| 日期 | 收盘价 | 涨跌幅 |")
+            md.append("|------|--------|--------|")
+            for price in report.recent_prices[-10:]:
+                change_emoji = "📈" if price.get('change_pct', 0) > 0 else "📉" if price.get('change_pct', 0) < 0 else "➡️"
+                md.append(f"| {price['date']} | {price['close']:.3f} | {change_emoji} {price.get('change_pct', 0):+.2f}% |")
+            md.append("")
+
+        # 风险提示
+        md.append("## ⚠️ 风险提示\n")
+        md.append("- 本报告仅供参考，不构成投资建议")
+        md.append("- 技术分析存在滞后性，市场随时可能变化")
+        md.append("- 请结合基本面分析和自身风险承受能力做决策")
+        md.append("- 投资有风险，入市需谨慎\n")
+
+        md.append("---")
+        md.append(f"*报告由 ETF Challenger 自动生成*")
+
+        return "\n".join(md)
+
+    def generate_html(self, report: ETFAnalysisReport) -> str:
+        """生成HTML格式报告"""
+        # 先生成markdown，然后转换为HTML
+        md_content = self.generate_markdown(report)
+
+        # 简单的markdown到HTML转换
+        html = []
+        html.append("<!DOCTYPE html>")
+        html.append("<html lang='zh-CN'>")
+        html.append("<head>")
+        html.append("  <meta charset='UTF-8'>")
+        html.append("  <meta name='viewport' content='width=device-width, initial-scale=1.0'>")
+        html.append(f"  <title>{report.name} ({report.code}) 分析报告</title>")
+        html.append("  <style>")
+        html.append(self._get_html_style())
+        html.append("  </style>")
+        html.append("</head>")
+        html.append("<body>")
+        html.append("  <div class='container'>")
+
+        # 转换markdown内容为HTML
+        html_content = self._markdown_to_html(md_content)
+        html.append(html_content)
+
+        html.append("  </div>")
+        html.append("</body>")
+        html.append("</html>")
+
+        return "\n".join(html)
+
+    def generate_json(self, report: ETFAnalysisReport) -> str:
+        """生成JSON格式报告"""
+        report_dict = asdict(report)
+        return json.dumps(report_dict, ensure_ascii=False, indent=2)
+
+    def _format_number(self, value: float) -> str:
+        """格式化数字"""
+        if value >= 1e8:
+            return f"{value / 1e8:.2f}亿"
+        elif value >= 1e4:
+            return f"{value / 1e4:.2f}万"
+        else:
+            return f"{value:.2f}"
+
+    def _get_signal_emoji(self, signal_type: str) -> str:
+        """获取信号表情"""
+        emoji_map = {
+            "强烈买入": "🚀",
+            "买入": "📈",
+            "持有": "➡️",
+            "卖出": "📉",
+            "强烈卖出": "💥"
+        }
+        return emoji_map.get(signal_type, "❓")
+
+    def _get_status_display(self, status: str) -> str:
+        """获取状态显示"""
+        if status == "看涨":
+            return "🟢 看涨"
+        elif status == "看跌":
+            return "🔴 看跌"
+        else:
+            return "🟡 中性"
+
+    def _get_html_style(self) -> str:
+        """获取HTML样式"""
+        return """
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #2c3e50; margin-bottom: 10px; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; }
+        h3 { color: #7f8c8d; margin-top: 20px; margin-bottom: 10px; }
+        h4 { color: #95a5a6; margin-top: 15px; margin-bottom: 8px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: white;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        tr:hover { background-color: #f8f9fa; }
+        ul { margin: 10px 0 10px 20px; }
+        li { margin: 5px 0; }
+        .positive { color: #27ae60; }
+        .negative { color: #e74c3c; }
+        .neutral { color: #95a5a6; }
+        hr { margin: 30px 0; border: none; border-top: 1px solid #ecf0f1; }
+        code {
+            background: #ecf0f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        """
+
+    def _markdown_to_html(self, md: str) -> str:
+        """简单的Markdown到HTML转换"""
+        html = []
+        in_table = False
+        in_list = False
+
+        for line in md.split('\n'):
+            line = line.strip()
+
+            if not line:
+                if in_list:
+                    html.append("</ul>")
+                    in_list = False
+                html.append("<br/>")
+                continue
+
+            # 标题
+            if line.startswith('# '):
+                html.append(f"<h1>{line[2:]}</h1>")
+            elif line.startswith('## '):
+                html.append(f"<h2>{line[3:]}</h2>")
+            elif line.startswith('### '):
+                html.append(f"<h3>{line[4:]}</h3>")
+            elif line.startswith('#### '):
+                html.append(f"<h4>{line[5:]}</h4>")
+
+            # 表格
+            elif line.startswith('|'):
+                if not in_table:
+                    html.append("<table>")
+                    in_table = True
+
+                cells = [cell.strip() for cell in line.split('|')[1:-1]]
+
+                if all(c.startswith('-') for c in cells):
+                    continue  # 跳过分隔行
+
+                if not any('<tr>' in h for h in html[-5:]):
+                    html.append("<thead><tr>")
+                    for cell in cells:
+                        html.append(f"<th>{cell}</th>")
+                    html.append("</tr></thead><tbody>")
+                else:
+                    html.append("<tr>")
+                    for cell in cells:
+                        html.append(f"<td>{cell}</td>")
+                    html.append("</tr>")
+
+            # 列表
+            elif line.startswith('- '):
+                if not in_list:
+                    html.append("<ul>")
+                    in_list = True
+                html.append(f"<li>{line[2:]}</li>")
+
+            # 分隔线
+            elif line == '---':
+                if in_table:
+                    html.append("</tbody></table>")
+                    in_table = False
+                html.append("<hr/>")
+
+            # 普通文本
+            else:
+                # 加粗
+                line = line.replace('**', '<strong>').replace('**', '</strong>')
+                html.append(f"<p>{line}</p>")
+
+        if in_table:
+            html.append("</tbody></table>")
+        if in_list:
+            html.append("</ul>")
+
+        return "\n".join(html)

@@ -1,0 +1,786 @@
+"""命令行主程序"""
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.progress import Progress
+from datetime import datetime, timedelta
+
+from ..data.service import ETFDataService
+from ..analysis.analyzer import ETFAnalyzer
+from ..analysis.advisor import TradingAdvisor, SignalType
+from ..utils.helpers import format_number, format_percentage, get_color_by_value
+
+console = Console()
+data_service = ETFDataService()
+analyzer = ETFAnalyzer()
+advisor = TradingAdvisor()
+
+
+@click.group()
+@click.version_option(version="0.1.0")
+def cli():
+    """
+    ETF Challenger - A股场内ETF基金分析工具
+
+    提供实时行情监控、溢价/折价分析、历史数据分析和持仓成分分析功能。
+    """
+    pass
+
+
+@cli.command()
+@click.option('--keyword', '-k', default=None, help='搜索关键词（代码或名称）')
+@click.option('--limit', '-l', default=20, help='显示数量限制')
+def list(keyword, limit):
+    """列出所有ETF或搜索ETF"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在获取ETF列表...", total=None)
+
+            if keyword:
+                df = data_service.search_etf(keyword)
+                title = f"搜索结果: {keyword}"
+            else:
+                df = data_service.get_etf_list()
+                title = "场内ETF列表"
+
+            progress.update(task, completed=True)
+
+        if df.empty:
+            console.print("[yellow]未找到匹配的ETF[/yellow]")
+            return
+
+        # 限制显示数量
+        df = df.head(limit)
+
+        # 创建表格
+        table = Table(title=title, show_header=True, header_style="bold magenta")
+        table.add_column("代码", style="cyan")
+        table.add_column("名称", style="white")
+        table.add_column("最新价", justify="right")
+        table.add_column("涨跌幅", justify="right")
+        table.add_column("成交额", justify="right")
+
+        for _, row in df.iterrows():
+            change_pct = float(row['涨跌幅'])
+            color = get_color_by_value(change_pct)
+
+            table.add_row(
+                row['代码'],
+                row['名称'],
+                f"{row['最新价']:.3f}",
+                f"[{color}]{format_percentage(change_pct)}[/{color}]",
+                format_number(row['成交额'])
+            )
+
+        console.print(table)
+        console.print(f"\n共 {len(df)} 只ETF")
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+
+
+@cli.command()
+@click.argument('code')
+def quote(code):
+    """查看ETF实时行情"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在获取实时行情...", total=None)
+            quote_data = data_service.get_realtime_quote(code)
+            progress.update(task, completed=True)
+
+        if not quote_data:
+            console.print(f"[red]未找到ETF: {code}[/red]")
+            return
+
+        # 创建行情面板
+        color = get_color_by_value(quote_data.change_pct)
+
+        info = f"""
+[bold]{quote_data.name}[/bold] ({quote_data.code})
+
+最新价: [{color}]{quote_data.price:.3f}[/{color}]
+涨跌额: [{color}]{quote_data.change:+.3f}[/{color}]
+涨跌幅: [{color}]{format_percentage(quote_data.change_pct)}[/{color}]
+
+开盘价: {quote_data.open_price:.3f}
+最高价: {quote_data.high:.3f}
+最低价: {quote_data.low:.3f}
+昨收价: {quote_data.pre_close:.3f}
+
+成交量: {format_number(quote_data.volume)}
+成交额: {format_number(quote_data.amount)}
+
+更新时间: {quote_data.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
+        """
+
+        panel = Panel(info.strip(), title="实时行情", border_style=color)
+        console.print(panel)
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+
+
+@cli.command()
+@click.argument('code')
+@click.option('--days', '-d', default=30, help='分析天数')
+def premium(code, days):
+    """分析ETF溢价/折价率"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在计算溢价率...", total=None)
+            premium_list = data_service.calculate_premium_discount(code, days)
+            progress.update(task, completed=True)
+
+        if not premium_list:
+            console.print(f"[yellow]暂无溢价数据[/yellow]")
+            return
+
+        # 创建表格
+        table = Table(title=f"溢价/折价分析 ({code})", show_header=True)
+        table.add_column("日期", style="cyan")
+        table.add_column("市价", justify="right")
+        table.add_column("净值", justify="right")
+        table.add_column("溢价率", justify="right")
+
+        # 只显示最近10条
+        for item in premium_list[-10:]:
+            color = get_color_by_value(item.premium_rate)
+            table.add_row(
+                item.date,
+                f"{item.market_price:.4f}",
+                f"{item.net_value:.4f}",
+                f"[{color}]{format_percentage(item.premium_rate)}[/{color}]"
+            )
+
+        console.print(table)
+
+        # 统计信息
+        avg_premium = sum(p.premium_rate for p in premium_list) / len(premium_list)
+        max_premium = max(p.premium_rate for p in premium_list)
+        min_premium = min(p.premium_rate for p in premium_list)
+
+        console.print(f"\n平均溢价率: {format_percentage(avg_premium)}")
+        console.print(f"最高溢价率: {format_percentage(max_premium)}")
+        console.print(f"最低溢价率: {format_percentage(min_premium)}")
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+
+
+@cli.command()
+@click.argument('code')
+@click.option('--days', '-d', default=90, help='分析天数')
+def analyze(code, days):
+    """分析ETF历史表现"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在分析历史数据...", total=None)
+
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+
+            df = data_service.get_historical_data(code, start_date, end_date)
+            progress.update(task, completed=True)
+
+        if df.empty:
+            console.print(f"[red]未找到历史数据[/red]")
+            return
+
+        # 计算技术指标
+        df = analyzer.calculate_returns(df)
+        df = analyzer.calculate_moving_averages(df)
+        df = analyzer.calculate_rsi(df)
+
+        # 计算表现指标
+        performance = analyzer.analyze_performance(df)
+
+        # 显示表现统计
+        table = Table(title=f"历史表现分析 ({code})", show_header=True)
+        table.add_column("指标", style="cyan")
+        table.add_column("数值", justify="right", style="yellow")
+
+        for key, value in performance.items():
+            if key == '交易天数':
+                table.add_row(key, str(value))
+            else:
+                color = get_color_by_value(value) if '收益' in key else "yellow"
+                table.add_row(key, f"[{color}]{value}[/{color}]")
+
+        console.print(table)
+
+        # 显示最近数据
+        console.print("\n[bold]最近10个交易日:[/bold]")
+        recent_table = Table(show_header=True)
+        recent_table.add_column("日期", style="cyan")
+        recent_table.add_column("收盘价", justify="right")
+        recent_table.add_column("日收益率", justify="right")
+        recent_table.add_column("MA5", justify="right")
+        recent_table.add_column("MA20", justify="right")
+        recent_table.add_column("RSI", justify="right")
+
+        for _, row in df.tail(10).iterrows():
+            daily_return = row.get('日收益率', 0)
+            color = get_color_by_value(daily_return)
+
+            recent_table.add_row(
+                row['日期'],
+                f"{row['收盘']:.3f}",
+                f"[{color}]{format_percentage(daily_return)}[/{color}]",
+                f"{row.get('MA5', 0):.3f}",
+                f"{row.get('MA20', 0):.3f}",
+                f"{row.get('RSI', 0):.1f}"
+            )
+
+        console.print(recent_table)
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+
+
+@cli.command()
+@click.argument('code')
+@click.option('--limit', '-l', default=10, help='显示数量')
+@click.option('--year', '-y', default=None, help='查询年份（默认当前年份）')
+def holdings(code, limit, year):
+    """查看ETF持仓成分"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在获取持仓数据...", total=None)
+            holdings_list = data_service.get_etf_holdings(code, year)
+            progress.update(task, completed=True)
+
+        if not holdings_list:
+            console.print(f"[yellow]暂无持仓数据[/yellow]")
+            return
+
+        # 分析持仓
+        analysis = analyzer.analyze_holdings(holdings_list)
+
+        # 显示统计信息
+        console.print(f"\n[bold]持仓统计:[/bold]")
+        console.print(f"持仓数量: {analysis['持仓数量']}")
+        console.print(f"前5大持仓权重: {analysis['前5大持仓权重(%)']}%")
+        console.print(f"前10大持仓权重: {analysis['前10大持仓权重(%)']}%")
+
+        # 显示持仓明细
+        table = Table(title=f"\n前{limit}大持仓 ({code})", show_header=True)
+        table.add_column("排名", style="cyan")
+        table.add_column("股票代码", style="cyan")
+        table.add_column("股票名称", style="white")
+        table.add_column("权重", justify="right", style="yellow")
+
+        for i, holding in enumerate(holdings_list[:limit], 1):
+            table.add_row(
+                str(i),
+                holding.stock_code,
+                holding.stock_name,
+                f"{holding.weight:.2f}%"
+            )
+
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+
+
+@cli.command()
+@click.argument('code')
+@click.option('--days', '-d', default=60, help='分析天数（建议30-90天）')
+def suggest(code, days):
+    """获取ETF买卖建议（综合技术分析）"""
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在分析数据...", total=None)
+
+            # 获取历史数据
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+            df = data_service.get_historical_data(code, start_date, end_date)
+
+            if df.empty:
+                console.print(f"[red]未找到历史数据[/red]")
+                return
+
+            # 计算技术指标
+            df = analyzer.calculate_returns(df)
+            df = analyzer.calculate_moving_averages(df)
+            df = analyzer.calculate_rsi(df)
+            df = analyzer.calculate_macd(df)
+            df = analyzer.calculate_bollinger_bands(df)
+
+            # 尝试获取溢价率
+            premium_rate = None
+            try:
+                premium_list = data_service.calculate_premium_discount(code, 5)
+                if premium_list:
+                    premium_rate = premium_list[-1].premium_rate
+            except:
+                pass
+
+            # 生成建议
+            signal = advisor.analyze(df, premium_rate)
+
+            progress.update(task, completed=True)
+
+        # 获取ETF名称
+        etf_name = "未知"
+        try:
+            quote = data_service.get_realtime_quote(code)
+            if quote:
+                etf_name = quote.name
+        except:
+            pass
+
+        # 显示建议
+        _display_trading_signal(code, etf_name, signal, df)
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+def _display_trading_signal(code, name, signal, df):
+    """显示交易信号"""
+    # 确定颜色
+    if signal.signal_type in [SignalType.STRONG_BUY, SignalType.BUY]:
+        signal_color = "green"
+        signal_emoji = "📈"
+    elif signal.signal_type in [SignalType.STRONG_SELL, SignalType.SELL]:
+        signal_color = "red"
+        signal_emoji = "📉"
+    else:
+        signal_color = "yellow"
+        signal_emoji = "➡️"
+
+    # 创建标题面板
+    current_price = df['收盘'].iloc[-1]
+    header = f"""
+[bold]{name}[/bold] ({code})
+当前价格: {current_price:.3f}
+
+[{signal_color}]{signal_emoji} {signal.signal_type.value}[/{signal_color}]
+置信度: [{signal_color}]{signal.confidence:.0f}%[/{signal_color}]
+风险等级: {signal.risk_level}
+    """
+
+    console.print(Panel(header.strip(), title="交易建议", border_style=signal_color))
+
+    # 显示建议原因
+    console.print("\n[bold]分析依据:[/bold]")
+    for reason in signal.reasons:
+        console.print(f"  {reason}")
+
+    # 显示各项指标状态
+    console.print("\n[bold]技术指标状态:[/bold]")
+    table = Table(show_header=True, box=None)
+    table.add_column("指标", style="cyan")
+    table.add_column("状态", justify="center")
+
+    for indicator, status in signal.indicators.items():
+        if status == "看涨":
+            status_display = "[green]看涨 ↗[/green]"
+        elif status == "看跌":
+            status_display = "[red]看跌 ↘[/red]"
+        else:
+            status_display = "[yellow]中性 →[/yellow]"
+
+        table.add_row(indicator, status_display)
+
+    console.print(table)
+
+    # 显示目标价位和止损位
+    if signal.price_target or signal.stop_loss:
+        console.print("\n[bold]价格参考:[/bold]")
+        if signal.price_target:
+            change_pct = (signal.price_target - current_price) / current_price * 100
+            console.print(f"  目标价位: {signal.price_target:.3f} ({format_percentage(change_pct)})")
+        if signal.stop_loss:
+            loss_pct = (signal.stop_loss - current_price) / current_price * 100
+            console.print(f"  止损价位: {signal.stop_loss:.3f} ({format_percentage(loss_pct)})")
+
+    # 风险提示
+    console.print("\n[bold yellow]⚠️ 风险提示:[/bold yellow]")
+    console.print("  • 本建议仅供参考，不构成投资建议")
+    console.print("  • 技术分析存在滞后性，市场随时可能变化")
+    console.print("  • 请结合基本面分析和自身风险承受能力做决策")
+    console.print(f"  • 当前风险等级: [bold]{signal.risk_level}[/bold]")
+
+
+if __name__ == '__main__':
+    cli()
+
+
+@cli.command()
+@click.argument('code')
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--format', '-f', type=click.Choice(['markdown', 'html', 'json']), default='markdown', help='报告格式')
+@click.option('--days', '-d', default=60, help='历史数据天数')
+@click.option('--year', '-y', default='2024', help='持仓数据年份')
+def report(code, output, format, days, year):
+    """生成ETF综合分析报告"""
+    from ..analysis.report import ReportGenerator, ETFAnalysisReport
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在生成报告...", total=None)
+
+            # 获取基本信息
+            etf_name = "未知ETF"
+            quote_data = None
+            try:
+                quote = data_service.get_realtime_quote(code)
+                if quote:
+                    etf_name = quote.name
+                    quote_data = {
+                        'price': quote.price,
+                        'change': quote.change,
+                        'change_pct': quote.change_pct,
+                        'open_price': quote.open_price,
+                        'high': quote.high,
+                        'low': quote.low,
+                        'pre_close': quote.pre_close,
+                        'volume': quote.volume,
+                        'amount': quote.amount,
+                    }
+            except:
+                pass
+
+            # 获取历史数据
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+            df = data_service.get_historical_data(code, start_date, end_date)
+
+            # 计算技术指标
+            df = analyzer.calculate_returns(df)
+            df = analyzer.calculate_moving_averages(df)
+            df = analyzer.calculate_rsi(df)
+            df = analyzer.calculate_macd(df)
+            df = analyzer.calculate_bollinger_bands(df)
+
+            # 分析表现
+            performance = analyzer.analyze_performance(df)
+
+            # 获取最新技术指标
+            technical_indicators = {}
+            if len(df) > 0:
+                last_row = df.iloc[-1]
+                technical_indicators = {
+                    'MA5': last_row.get('MA5'),
+                    'MA20': last_row.get('MA20'),
+                    'RSI': last_row.get('RSI'),
+                    'MACD': last_row.get('MACD'),
+                    'Signal': last_row.get('Signal'),
+                    'BB_Upper': last_row.get('BB_Upper'),
+                    'BB_Middle': last_row.get('BB_Middle'),
+                    'BB_Lower': last_row.get('BB_Lower'),
+                }
+
+            # 生成交易建议
+            premium_rate = None
+            try:
+                premium_list = data_service.calculate_premium_discount(code, 5)
+                if premium_list:
+                    premium_rate = premium_list[-1].premium_rate
+            except:
+                pass
+
+            signal = advisor.analyze(df, premium_rate)
+            trading_signal_data = {
+                'signal_type': signal.signal_type.value,
+                'confidence': signal.confidence,
+                'risk_level': signal.risk_level,
+                'reasons': signal.reasons,
+                'indicators': signal.indicators,
+                'price_target': signal.price_target,
+                'stop_loss': signal.stop_loss,
+            }
+
+            # 溢价分析
+            premium_analysis = None
+            try:
+                premium_list = data_service.calculate_premium_discount(code, 30)
+                if premium_list:
+                    rates = [p.premium_rate for p in premium_list]
+                    premium_analysis = {
+                        'current_premium': premium_list[-1].premium_rate,
+                        'avg_premium': sum(rates) / len(rates),
+                        'max_premium': max(rates),
+                        'min_premium': min(rates),
+                    }
+            except:
+                pass
+
+            # 持仓信息
+            holdings_data = None
+            holdings_summary = None
+            try:
+                holdings = data_service.get_etf_holdings(code, year)
+                if holdings:
+                    holdings_data = [
+                        {
+                            'code': h.stock_code,
+                            'name': h.stock_name,
+                            'weight': h.weight
+                        }
+                        for h in holdings[:20]
+                    ]
+                    holdings_summary = analyzer.analyze_holdings(holdings)
+            except:
+                pass
+
+            # 最近价格
+            recent_prices = []
+            for _, row in df.tail(10).iterrows():
+                recent_prices.append({
+                    'date': row['日期'],
+                    'close': row['收盘'],
+                    'change_pct': row.get('涨跌幅', 0)
+                })
+
+            # 创建报告对象
+            report_obj = ETFAnalysisReport(
+                code=code,
+                name=etf_name,
+                report_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                quote=quote_data,
+                performance=performance,
+                technical_indicators=technical_indicators,
+                trading_signal=trading_signal_data,
+                holdings=holdings_data,
+                holdings_summary=holdings_summary,
+                premium_analysis=premium_analysis,
+                recent_prices=recent_prices
+            )
+
+            # 生成报告
+            generator = ReportGenerator()
+            if format == 'markdown':
+                content = generator.generate_markdown(report_obj)
+                ext = 'md'
+            elif format == 'html':
+                content = generator.generate_html(report_obj)
+                ext = 'html'
+            else:  # json
+                content = generator.generate_json(report_obj)
+                ext = 'json'
+
+            progress.update(task, completed=True)
+
+        # 输出或保存
+        if output:
+            output_path = output
+        else:
+            output_path = f"{code}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        console.print(f"\n[green]✓ 报告已生成: {output_path}[/green]")
+
+        # 显示摘要
+        console.print(f"\n[bold]报告摘要:[/bold]")
+        console.print(f"ETF: {etf_name} ({code})")
+        console.print(f"格式: {format.upper()}")
+        console.print(f"分析天数: {days}天")
+
+        if quote_data:
+            color = get_color_by_value(quote_data['change_pct'])
+            console.print(f"当前价格: {quote_data['price']:.3f} ([{color}]{quote_data['change_pct']:+.2f}%[/{color}])")
+
+        console.print(f"交易建议: {trading_signal_data['signal_type']} (置信度: {trading_signal_data['confidence']:.0f}%)")
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+@cli.command()
+@click.argument('codes', nargs=-1, required=True)
+@click.option('--days', '-d', default=60, help='分析天数')
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--format', '-f', type=click.Choice(['table', 'markdown', 'html']), default='table', help='输出格式')
+def compare(codes, days, output, format):
+    """批量对比多个ETF
+
+    示例：
+        etf compare 510300 510500 159915
+        etf compare 510300 510500 --format markdown --output compare.md
+    """
+    from ..analysis.comparator import ETFComparator
+
+    if len(codes) < 2:
+        console.print("[red]错误: 至少需要2个ETF代码进行对比[/red]")
+        return
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task(f"[cyan]正在对比 {len(codes)} 只ETF...", total=None)
+
+            comparator = ETFComparator()
+            results = comparator.compare(list(codes), days)
+
+            progress.update(task, completed=True)
+
+        if not results:
+            console.print("[red]未能获取任何ETF数据[/red]")
+            return
+
+        console.print(f"\n[green]✓ 成功分析 {len(results)}/{len(codes)} 只ETF[/green]\n")
+
+        if format == 'table':
+            # 在终端显示表格
+            _display_comparison_table(results)
+
+        elif format in ['markdown', 'html']:
+            # 生成报告文件
+            content = comparator.generate_comparison_report(results, format)
+
+            if output:
+                output_path = output
+            else:
+                ext = 'md' if format == 'markdown' else 'html'
+                output_path = f"etf_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
+
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            console.print(f"[green]✓ 对比报告已生成: {output_path}[/green]")
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+def _display_comparison_table(results):
+    """在终端显示对比表格"""
+    from ..analysis.comparator import ETFComparison
+
+    # 综合排名表
+    console.print("[bold]📊 综合排名[/bold]\n")
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("排名", style="cyan", justify="center")
+    table.add_column("代码", style="cyan")
+    table.add_column("名称")
+    table.add_column("评分", justify="right")
+    table.add_column("建议", justify="center")
+    table.add_column("置信度", justify="right")
+
+    for i, comp in enumerate(results, 1):
+        # 确定颜色
+        if comp.signal_type in ["强烈买入", "买入"]:
+            signal_color = "green"
+        elif comp.signal_type in ["强烈卖出", "卖出"]:
+            signal_color = "red"
+        else:
+            signal_color = "yellow"
+
+        # 评分颜色
+        if comp.score >= 70:
+            score_color = "green"
+        elif comp.score >= 50:
+            score_color = "yellow"
+        else:
+            score_color = "red"
+
+        table.add_row(
+            f"#{i}",
+            comp.code,
+            comp.name[:20],  # 限制名称长度
+            f"[{score_color}]{comp.score:.1f}[/{score_color}]",
+            f"[{signal_color}]{comp.signal_type}[/{signal_color}]",
+            f"{comp.confidence:.0f}%"
+        )
+
+    console.print(table)
+
+    # 实时行情对比
+    console.print("\n[bold]📈 实时行情对比[/bold]\n")
+    table2 = Table(show_header=True, header_style="bold magenta")
+    table2.add_column("代码", style="cyan")
+    table2.add_column("名称")
+    table2.add_column("最新价", justify="right")
+    table2.add_column("涨跌幅", justify="right")
+
+    for comp in results:
+        color = get_color_by_value(comp.change_pct)
+        table2.add_row(
+            comp.code,
+            comp.name[:20],
+            f"{comp.price:.3f}",
+            f"[{color}]{comp.change_pct:+.2f}%[/{color}]"
+        )
+
+    console.print(table2)
+
+    # 历史表现对比
+    console.print("\n[bold]📊 历史表现对比[/bold]\n")
+    table3 = Table(show_header=True, header_style="bold magenta")
+    table3.add_column("代码", style="cyan")
+    table3.add_column("年化收益", justify="right")
+    table3.add_column("波动率", justify="right")
+    table3.add_column("夏普比率", justify="right")
+    table3.add_column("最大回撤", justify="right")
+    table3.add_column("风险", justify="center")
+
+    for comp in results:
+        return_color = get_color_by_value(comp.annual_return)
+
+        # 风险等级颜色
+        risk_colors = {"低": "green", "中": "yellow", "高": "red"}
+        risk_color = risk_colors.get(comp.risk_level, "white")
+
+        table3.add_row(
+            comp.code,
+            f"[{return_color}]{comp.annual_return:+.2f}%[/{return_color}]",
+            f"{comp.volatility:.2f}%",
+            f"{comp.sharpe_ratio:.2f}",
+            f"{comp.max_drawdown:.2f}%",
+            f"[{risk_color}]{comp.risk_level}[/{risk_color}]"
+        )
+
+    console.print(table3)
+
+    # 技术指标统计
+    console.print("\n[bold]🔧 技术指标统计[/bold]\n")
+    table4 = Table(show_header=True, header_style="bold magenta")
+    table4.add_column("代码", style="cyan")
+    table4.add_column("看涨", justify="center", style="green")
+    table4.add_column("看跌", justify="center", style="red")
+    table4.add_column("中性", justify="center", style="yellow")
+    table4.add_column("综合", justify="center")
+
+    for comp in results:
+        total = comp.bullish_count + comp.bearish_count + comp.neutral_count
+        trend = "↗" if comp.bullish_count > comp.bearish_count else "↘" if comp.bearish_count > comp.bullish_count else "→"
+
+        table4.add_row(
+            comp.code,
+            str(comp.bullish_count),
+            str(comp.bearish_count),
+            str(comp.neutral_count),
+            trend
+        )
+
+    console.print(table4)
+
+    # 推荐建议
+    if results:
+        console.print("\n[bold]💡 推荐建议[/bold]\n")
+
+        best = results[0]
+        console.print(f"🏆 [green]综合评分最高[/green]: {best.name} ({best.code}) - 评分 {best.score:.1f}")
+
+        best_return = max(results, key=lambda x: x.annual_return)
+        console.print(f"📈 [green]最高年化收益[/green]: {best_return.name} ({best_return.code}) - {best_return.annual_return:+.2f}%")
+
+        best_sharpe = max(results, key=lambda x: x.sharpe_ratio)
+        console.print(f"⚖️ [green]最佳夏普比率[/green]: {best_sharpe.name} ({best_sharpe.code}) - {best_sharpe.sharpe_ratio:.2f}")
+
+        best_risk = min(results, key=lambda x: x.volatility)
+        console.print(f"🛡️ [green]最低波动率[/green]: {best_risk.name} ({best_risk.code}) - {best_risk.volatility:.2f}%")

@@ -1,0 +1,60 @@
+[project]
+name = "etf-challenger"
+version = "0.1.0"
+description = "A股场内ETF基金分析工具 - 提供实时行情、溢价分析、历史数据分析和持仓成分分析"
+authors = [
+    { name = "ETF Challenger Team" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+dependencies = [
+    "akshare>=1.14.0",      # A股数据获取
+    "pandas>=2.0.0",         # 数据处理
+    "numpy>=1.24.0",         # 数值计算
+    "click>=8.1.0",          # CLI框架
+    "rich>=13.0.0",          # 美化命令行输出
+    "requests>=2.31.0",      # HTTP请求
+    "python-dateutil>=2.8.0", # 日期处理
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",         # 测试框架
+    "pytest-cov>=4.1.0",     # 测试覆盖率
+    "black>=23.0.0",         # 代码格式化
+    "ruff>=0.1.0",           # 代码检查
+    "mypy>=1.5.0",           # 类型检查
+]
+
+[project.scripts]
+etf = "etf_challenger.cli.main:cli"
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
