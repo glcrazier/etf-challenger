@@ -92,6 +92,16 @@ class ReportJob:
                 errors.append(error_msg)
                 continue
 
+        # 去重：如果同一ETF在多个池中出现，保留评分最高的
+        if all_recommendations:
+            deduplicated = self._deduplicate_recommendations(all_recommendations)
+            if len(deduplicated) < len(all_recommendations):
+                logger.info(
+                    f"去重完成: {len(all_recommendations)} -> {len(deduplicated)} "
+                    f"(移除{len(all_recommendations) - len(deduplicated)}个重复ETF)"
+                )
+            all_recommendations = deduplicated
+
         # 生成汇总数据
         summary_path = ""
         if all_recommendations:
@@ -239,3 +249,41 @@ class ReportJob:
             }
             for rec in recommendations
         ]
+
+    def _deduplicate_recommendations(
+        self,
+        recommendations: List[ETFRecommendation]
+    ) -> List[ETFRecommendation]:
+        """
+        对ETF建议列表去重
+
+        当同一ETF在多个池中出现时，保留评分最高的那个。
+
+        Args:
+            recommendations: 可能包含重复ETF的建议列表
+
+        Returns:
+            去重后的建议列表
+        """
+        best_recommendations = {}
+
+        for rec in recommendations:
+            code = rec.code
+            if code not in best_recommendations:
+                best_recommendations[code] = rec
+            else:
+                # 如果已存在，比较评分，保留评分更高的
+                if rec.score > best_recommendations[code].score:
+                    logger.debug(
+                        f"ETF {code} 出现重复，保留评分更高的: "
+                        f"{rec.score:.1f} > {best_recommendations[code].score:.1f}"
+                    )
+                    best_recommendations[code] = rec
+                else:
+                    logger.debug(
+                        f"ETF {code} 出现重复，跳过评分较低的: "
+                        f"{rec.score:.1f} <= {best_recommendations[code].score:.1f}"
+                    )
+
+        # 按评分排序返回
+        return sorted(best_recommendations.values(), key=lambda x: x.score, reverse=True)
