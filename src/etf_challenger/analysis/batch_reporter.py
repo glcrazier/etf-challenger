@@ -21,6 +21,7 @@ class ETFRecommendation:
     confidence: float
     risk_level: str
     current_price: float
+    entry_price: Optional[float]
     price_target: Optional[float]
     stop_loss: Optional[float]
     change_pct: float
@@ -142,6 +143,7 @@ class BatchReportGenerator:
                 confidence=signal.confidence,
                 risk_level=signal.risk_level,
                 current_price=quote.price,
+                entry_price=signal.entry_price,
                 price_target=signal.price_target,
                 stop_loss=signal.stop_loss,
                 change_pct=quote.change_pct,

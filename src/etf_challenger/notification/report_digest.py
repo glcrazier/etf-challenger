@@ -177,11 +177,16 @@ class ReportDigest:
 
         rows = []
         for rec in recommendations:
-            target_gain = ""
+            # 建议买入价
+            entry_price = f"{rec.get('entry_price', 0):.3f}" if rec.get('entry_price') else "-"
+
+            # 止盈价（含潜在收益）
+            target_gain = "-"
             if rec.get('price_target') and rec.get('current_price'):
                 gain_pct = (rec['price_target'] - rec['current_price']) / rec['current_price'] * 100
-                target_gain = f"{rec['price_target']:.3f} (潜在收益 {gain_pct:+.2f}%)"
+                target_gain = f"{rec['price_target']:.3f} ({gain_pct:+.2f}%)"
 
+            # 止损价
             stop_loss_text = f"{rec.get('stop_loss', 0):.3f}" if rec.get('stop_loss') else "-"
 
             reasons_text = '<br>'.join([f"• {r}" for r in rec.get('reasons', [])[:3]])
@@ -194,8 +199,9 @@ class ReportDigest:
                     <td class="{'positive' if rec.get('change_pct', 0) > 0 else 'negative'}">{rec.get('change_pct', 0):+.2f}%</td>
                     <td>{rec.get('score', 0):.1f}</td>
                     <td>{rec.get('confidence', 0):.0f}%</td>
-                    <td class="positive">{target_gain}</td>
-                    <td class="negative">{stop_loss_text}</td>
+                    <td class="entry-price">{entry_price}</td>
+                    <td class="price-target">{target_gain}</td>
+                    <td class="stop-loss">{stop_loss_text}</td>
                     <td>{reasons_text}</td>
                 </tr>
             """)
@@ -213,6 +219,7 @@ class ReportDigest:
                         <th>评分</th>
                         <th>置信度</th>
                         <th>建议买入价</th>
+                        <th>止盈价</th>
                         <th>止损价</th>
                         <th>建议理由</th>
                     </tr>
@@ -232,6 +239,7 @@ class ReportDigest:
 
         rows = []
         for rec in recommendations:
+            entry_price = f"{rec.get('entry_price', 0):.3f}" if rec.get('entry_price') else "-"
             target_price = f"{rec.get('price_target', 0):.3f}" if rec.get('price_target') else "-"
             stop_loss = f"{rec.get('stop_loss', 0):.3f}" if rec.get('stop_loss') else "-"
             reasons_text = ', '.join(rec.get('reasons', [])[:2])
@@ -243,8 +251,9 @@ class ReportDigest:
                     <td>{rec.get('current_price', 0):.3f}</td>
                     <td class="{'positive' if rec.get('change_pct', 0) > 0 else 'negative'}">{rec.get('change_pct', 0):+.2f}%</td>
                     <td>{rec.get('score', 0):.1f}</td>
-                    <td class="positive">{target_price}</td>
-                    <td class="negative">{stop_loss}</td>
+                    <td class="entry-price">{entry_price}</td>
+                    <td class="price-target">{target_price}</td>
+                    <td class="stop-loss">{stop_loss}</td>
                     <td>{reasons_text}</td>
                 </tr>
             """)
@@ -261,6 +270,7 @@ class ReportDigest:
                         <th>涨跌幅</th>
                         <th>评分</th>
                         <th>建议买入价</th>
+                        <th>止盈价</th>
                         <th>止损价</th>
                         <th>建议理由</th>
                     </tr>
@@ -373,6 +383,7 @@ class ReportDigest:
 
         rows = []
         for i, rec in enumerate(sorted_recs, 1):
+            entry_price = f"{rec.get('entry_price', 0):.3f}" if rec.get('entry_price') else "-"
             target_price = f"{rec.get('price_target', 0):.3f}" if rec.get('price_target') else "-"
             stop_loss = f"{rec.get('stop_loss', 0):.3f}" if rec.get('stop_loss') else "-"
 
@@ -385,8 +396,9 @@ class ReportDigest:
                     <td class="{'positive' if rec.get('change_pct', 0) > 0 else 'negative'}">{rec.get('change_pct', 0):+.2f}%</td>
                     <td>{rec.get('score', 0):.1f}</td>
                     <td>{rec.get('signal', 'N/A')}</td>
-                    <td class="positive">{target_price}</td>
-                    <td class="negative">{stop_loss}</td>
+                    <td class="entry-price">{entry_price}</td>
+                    <td class="price-target">{target_price}</td>
+                    <td class="stop-loss">{stop_loss}</td>
                     <td>{rec.get('annual_return', 0):+.2f}%</td>
                 </tr>
             """)
@@ -405,6 +417,7 @@ class ReportDigest:
                         <th>评分</th>
                         <th>建议</th>
                         <th>建议买入价</th>
+                        <th>止盈价</th>
                         <th>止损价</th>
                         <th>年化收益</th>
                     </tr>
@@ -515,11 +528,23 @@ class ReportDigest:
             background-color: #f8f9fa;
         }
         .positive {
-            color: #22c55e;
+            color: #ef4444;
             font-weight: bold;
         }
         .negative {
-            color: #ef4444;
+            color: #22c55e;
+            font-weight: bold;
+        }
+        .entry-price {
+            color: #8b5cf6;
+            font-weight: bold;
+        }
+        .price-target {
+            color: #667eea;
+            font-weight: bold;
+        }
+        .stop-loss {
+            color: #f59e0b;
             font-weight: bold;
         }
         .footer {

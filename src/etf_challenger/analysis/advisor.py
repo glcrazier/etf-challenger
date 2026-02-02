@@ -30,7 +30,8 @@ class TradingSignal:
     reasons: List[str]  # 建议原因
     indicators: Dict[str, str]  # 各指标的状态
     risk_level: str  # 风险等级：低/中/高
-    price_target: Optional[float] = None  # 目标价位
+    entry_price: Optional[float] = None  # 建议买入价
+    price_target: Optional[float] = None  # 止盈价位
     stop_loss: Optional[float] = None  # 止损价位
 
 
@@ -114,9 +115,9 @@ class TradingAdvisor:
         reasons = self._generate_reasons(signals, df, premium_rate)
         risk_level = self._assess_risk(df)
 
-        # 计算目标价位和止损位
+        # 计算建议买入价、止盈价和止损价
         current_price = df['收盘'].iloc[-1]
-        price_target, stop_loss = self._calculate_price_levels(
+        entry_price, price_target, stop_loss = self._calculate_price_levels(
             current_price, signal_type, df
         )
 
@@ -126,6 +127,7 @@ class TradingAdvisor:
             reasons=reasons,
             indicators={k: v.value for k, v in signals.items()},
             risk_level=risk_level,
+            entry_price=entry_price,
             price_target=price_target,
             stop_loss=stop_loss
         )
@@ -438,11 +440,11 @@ class TradingAdvisor:
         current_price: float,
         signal_type: SignalType,
         df: pd.DataFrame
-    ) -> tuple[Optional[float], Optional[float]]:
-        """计算目标价位和止损位"""
+    ) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """计算建议买入价、止盈价和止损价"""
         # 计算ATR (平均真实波幅)
         if len(df) < 14:
-            return None, None
+            return None, None, None
 
         high = df['最高'].tail(14)
         low = df['最低'].tail(14)
@@ -454,14 +456,16 @@ class TradingAdvisor:
         atr = tr.mean()
 
         if signal_type in [SignalType.STRONG_BUY, SignalType.BUY]:
-            # 买入建议：目标价 = 当前价 + 2*ATR，止损 = 当前价 - ATR
-            price_target = current_price + 2 * atr
-            stop_loss = current_price - atr
+            # 买入建议
+            entry_price = current_price  # 建议买入价为当前价
+            price_target = current_price + 2 * atr  # 止盈价 = 当前价 + 2*ATR
+            stop_loss = current_price - atr  # 止损价 = 当前价 - ATR
         elif signal_type in [SignalType.STRONG_SELL, SignalType.SELL]:
-            # 卖出建议：目标价 = 当前价 - 2*ATR，止损 = 当前价 + ATR
-            price_target = current_price - 2 * atr
-            stop_loss = current_price + atr
+            # 卖出建议
+            entry_price = current_price  # 建议卖出价为当前价
+            price_target = current_price - 2 * atr  # 目标价 = 当前价 - 2*ATR
+            stop_loss = current_price + atr  # 止损价 = 当前价 + ATR
         else:
-            return None, None
+            return None, None, None
 
-        return round(price_target, 3), round(stop_loss, 3)
+        return round(entry_price, 3), round(price_target, 3), round(stop_loss, 3)

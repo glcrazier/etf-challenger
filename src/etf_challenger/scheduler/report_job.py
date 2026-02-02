@@ -239,6 +239,7 @@ class ReportJob:
                 'confidence': rec.confidence,
                 'risk_level': rec.risk_level,
                 'current_price': rec.current_price,
+                'entry_price': rec.entry_price,
                 'price_target': rec.price_target,
                 'stop_loss': rec.stop_loss,
                 'change_pct': rec.change_pct,
