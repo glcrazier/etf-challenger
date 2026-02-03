@@ -161,7 +161,8 @@ class ReportJob:
                 content, recs = self.batch_generator.generate_batch_report(
                     pool_name=pool_name,
                     days=self.config.report.analysis_days,
-                    output_format=format_type
+                    output_format=format_type,
+                    session=session
                 )
 
                 # 第一次生成时保存recommendations

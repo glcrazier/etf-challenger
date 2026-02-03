@@ -39,6 +39,13 @@ class ReportDigest:
         date_str = datetime.now().strftime('%Y-%m-%d')
         time_str = datetime.now().strftime('%H:%M:%S')
 
+        # 数据时效性说明
+        data_note = ""
+        if session == 'morning':
+            data_note = "💡 <strong>数据说明：</strong>早盘数据基于昨日收盘K线+今日实时行情，采用保守策略（提高买入阈值）"
+        else:
+            data_note = "💡 <strong>数据说明：</strong>尾盘数据基于昨日收盘K线+今日实时行情，采用标准策略（接近收盘，数据更准确）"
+
         # 计算统计数据
         stats = ReportDigest._calculate_statistics(recommendations)
 
@@ -93,6 +100,7 @@ class ReportDigest:
                 </div>
             </div>
             <p class="pool-list"><strong>监控池:</strong> {', '.join(pools)}</p>
+            <p class="data-note">{data_note}</p>
         </div>
 
         {ReportDigest._generate_strong_buy_section(categorized['强烈买入'])}
@@ -503,6 +511,14 @@ class ReportDigest:
         .pool-list {
             margin-top: 15px;
             font-size: 14px;
+        }
+        .data-note {
+            margin-top: 12px;
+            padding: 10px;
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            font-size: 13px;
+            border-radius: 4px;
         }
         .section {
             margin: 30px 0;

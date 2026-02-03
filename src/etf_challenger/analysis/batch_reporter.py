@@ -80,7 +80,8 @@ class BatchReportGenerator:
     def analyze_single_etf(
         self,
         code: str,
-        days: int = 60
+        days: int = 60,
+        session: str = 'afternoon'
     ) -> Optional[ETFRecommendation]:
         """
         分析单个ETF
@@ -88,6 +89,7 @@ class BatchReportGenerator:
         Args:
             code: ETF代码
             days: 分析天数
+            session: 时段 ('morning' 或 'afternoon')
 
         Returns:
             ETF投资建议，失败返回None
@@ -105,6 +107,9 @@ class BatchReportGenerator:
 
             if df.empty:
                 return None
+
+            # 使用实时行情更新或添加当日K线
+            df = self._update_with_realtime_data(df, quote)
 
             # 计算技术指标
             df = self.analyzer.calculate_returns(df)
@@ -125,8 +130,8 @@ class BatchReportGenerator:
             except:
                 pass
 
-            # 生成交易建议
-            signal = self.advisor.analyze(df, premium_rate)
+            # 生成交易建议（传入session参数）
+            signal = self.advisor.analyze(df, premium_rate, session=session)
 
             # 计算综合评分 (基于信号类型、置信度、收益、风险)
             score = self._calculate_comprehensive_score(
@@ -156,6 +161,48 @@ class BatchReportGenerator:
         except Exception as e:
             print(f"分析 {code} 失败: {e}")
             return None
+
+    def _update_with_realtime_data(self, df: pd.DataFrame, quote) -> pd.DataFrame:
+        """
+        使用实时行情更新或添加当日K线
+
+        Args:
+            df: 历史K线数据
+            quote: 实时行情
+
+        Returns:
+            更新后的DataFrame
+        """
+        import pandas as pd
+        from datetime import datetime
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 检查最后一根K线是否是今天
+        if not df.empty and '日期' in df.columns:
+            last_date = pd.to_datetime(df['日期'].iloc[-1]).strftime("%Y-%m-%d")
+
+            if last_date == today:
+                # 更新今日K线
+                df.loc[df.index[-1], '收盘'] = quote.price
+                df.loc[df.index[-1], '最高'] = max(df.loc[df.index[-1], '最高'], quote.high)
+                df.loc[df.index[-1], '最低'] = min(df.loc[df.index[-1], '最低'], quote.low)
+                df.loc[df.index[-1], '成交量'] = quote.volume
+                df.loc[df.index[-1], '成交额'] = quote.amount
+            else:
+                # 添加今日K线
+                new_row = pd.DataFrame([{
+                    '日期': today,
+                    '开盘': quote.open_price,
+                    '收盘': quote.price,
+                    '最高': quote.high,
+                    '最低': quote.low,
+                    '成交量': quote.volume,
+                    '成交额': quote.amount
+                }])
+                df = pd.concat([df, new_row], ignore_index=True)
+
+        return df
 
     def _calculate_comprehensive_score(
         self,
@@ -221,7 +268,8 @@ class BatchReportGenerator:
         self,
         pool_name: str = None,
         days: int = 60,
-        output_format: str = 'markdown'
+        output_format: str = 'markdown',
+        session: str = 'afternoon'
     ) -> Tuple[str, List[ETFRecommendation]]:
         """
         生成批量投资建议报告
@@ -230,6 +278,7 @@ class BatchReportGenerator:
             pool_name: 池名称
             days: 分析天数
             output_format: 输出格式 (markdown/html)
+            session: 时段 ('morning' 或 'afternoon')
 
         Returns:
             (报告内容, ETF建议列表)
@@ -246,7 +295,7 @@ class BatchReportGenerator:
         # 批量分析
         recommendations = []
         for code in etf_codes:
-            rec = self.analyze_single_etf(code, days)
+            rec = self.analyze_single_etf(code, days, session=session)
             if rec:
                 recommendations.append(rec)
 

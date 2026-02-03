@@ -52,7 +52,8 @@ class TradingAdvisor:
     def analyze(
         self,
         df: pd.DataFrame,
-        premium_rate: Optional[float] = None
+        premium_rate: Optional[float] = None,
+        session: str = 'afternoon'
     ) -> TradingSignal:
         """
         综合分析生成交易建议
@@ -60,58 +61,62 @@ class TradingAdvisor:
         Args:
             df: 包含技术指标的历史数据
             premium_rate: 当前溢价率
+            session: 时段 ('morning' 或 'afternoon')，影响分析策略
 
         Returns:
             交易信号
         """
+        # 根据时段调整权重
+        weights = self._get_session_weights(session)
+
         signals = {}
         scores = []
 
         # 1. 均线交叉信号
         ma_signal, ma_score = self._analyze_ma_cross(df)
         signals['均线'] = ma_signal
-        scores.append(ma_score * self.weights['ma_cross'])
+        scores.append(ma_score * weights['ma_cross'])
 
         # 2. RSI信号
         rsi_signal, rsi_score = self._analyze_rsi(df)
         signals['RSI'] = rsi_signal
-        scores.append(rsi_score * self.weights['rsi'])
+        scores.append(rsi_score * weights['rsi'])
 
         # 3. MACD信号
         macd_signal, macd_score = self._analyze_macd(df)
         signals['MACD'] = macd_signal
-        scores.append(macd_score * self.weights['macd'])
+        scores.append(macd_score * weights['macd'])
 
         # 4. 布林带信号
         bb_signal, bb_score = self._analyze_bollinger(df)
         signals['布林带'] = bb_signal
-        scores.append(bb_score * self.weights['bollinger'])
+        scores.append(bb_score * weights['bollinger'])
 
         # 5. 趋势信号
         trend_signal, trend_score = self._analyze_trend(df)
         signals['趋势'] = trend_signal
-        scores.append(trend_score * self.weights['trend'])
+        scores.append(trend_score * weights['trend'])
 
         # 6. 成交量信号
         volume_signal, volume_score = self._analyze_volume(df)
         signals['成交量'] = volume_signal
-        scores.append(volume_score * self.weights['volume'])
+        scores.append(volume_score * weights['volume'])
 
         # 7. 溢价率信号（如果有）
         if premium_rate is not None:
             premium_signal, premium_score = self._analyze_premium(premium_rate)
             signals['溢价率'] = premium_signal
-            scores.append(premium_score * self.weights['premium'])
+            scores.append(premium_score * weights['premium'])
 
         # 计算综合得分 (-100 到 +100)
-        total_weight = sum(self.weights.values())
+        total_weight = sum(weights.values())
         if premium_rate is None:
-            total_weight -= self.weights['premium']
+            total_weight -= weights['premium']
 
         final_score = sum(scores) / total_weight
 
         # 生成建议
-        signal_type, confidence = self._get_signal_type(final_score)
+        signal_type, confidence = self._get_signal_type(final_score, session)
         reasons = self._generate_reasons(signals, df, premium_rate)
         risk_level = self._assess_risk(df)
 
@@ -131,6 +136,36 @@ class TradingAdvisor:
             price_target=price_target,
             stop_loss=stop_loss
         )
+
+    def _get_session_weights(self, session: str) -> Dict[str, int]:
+        """
+        根据时段获取权重
+
+        早盘：更保守，降低实时数据权重
+        尾盘：更激进，提高实时数据权重
+        """
+        if session == 'morning':
+            # 早盘：更保守，降低溢价率和成交量权重
+            return {
+                'ma_cross': 22,      # 均线交叉（提高）
+                'rsi': 18,           # RSI（提高）
+                'macd': 22,          # MACD（提高）
+                'bollinger': 18,     # 布林带（提高）
+                'trend': 15,         # 趋势
+                'volume': 3,         # 成交量（降低）
+                'premium': 2,        # 溢价率（降低）
+            }
+        else:  # afternoon
+            # 尾盘：更激进，提高实时数据权重
+            return {
+                'ma_cross': 18,      # 均线交叉
+                'rsi': 15,           # RSI
+                'macd': 18,          # MACD
+                'bollinger': 15,     # 布林带
+                'trend': 15,         # 趋势
+                'volume': 12,        # 成交量（提高）
+                'premium': 7,        # 溢价率（提高）
+            }
 
     def _analyze_ma_cross(self, df: pd.DataFrame) -> tuple[IndicatorSignal, float]:
         """分析均线交叉"""
@@ -340,20 +375,39 @@ class TradingAdvisor:
         # 正常范围
         return IndicatorSignal.NEUTRAL, 0
 
-    def _get_signal_type(self, score: float) -> tuple[SignalType, float]:
-        """根据得分获取信号类型"""
+    def _get_signal_type(self, score: float, session: str = 'afternoon') -> tuple[SignalType, float]:
+        """
+        根据得分获取信号类型
+
+        早盘：提高阈值，更保守
+        尾盘：标准阈值
+        """
         confidence = abs(score)
 
-        if score >= 0.6:
-            return SignalType.STRONG_BUY, min(confidence * 100, 95)
-        elif score >= 0.2:
-            return SignalType.BUY, min(confidence * 100, 80)
-        elif score <= -0.6:
-            return SignalType.STRONG_SELL, min(confidence * 100, 95)
-        elif score <= -0.2:
-            return SignalType.SELL, min(confidence * 100, 80)
+        if session == 'morning':
+            # 早盘：更保守的阈值
+            if score >= 0.7:
+                return SignalType.STRONG_BUY, min(confidence * 100, 90)
+            elif score >= 0.3:
+                return SignalType.BUY, min(confidence * 100, 75)
+            elif score <= -0.7:
+                return SignalType.STRONG_SELL, min(confidence * 100, 90)
+            elif score <= -0.3:
+                return SignalType.SELL, min(confidence * 100, 75)
+            else:
+                return SignalType.HOLD, 50
         else:
-            return SignalType.HOLD, 50
+            # 尾盘：标准阈值
+            if score >= 0.6:
+                return SignalType.STRONG_BUY, min(confidence * 100, 95)
+            elif score >= 0.2:
+                return SignalType.BUY, min(confidence * 100, 80)
+            elif score <= -0.6:
+                return SignalType.STRONG_SELL, min(confidence * 100, 95)
+            elif score <= -0.2:
+                return SignalType.SELL, min(confidence * 100, 80)
+            else:
+                return SignalType.HOLD, 50
 
     def _generate_reasons(
         self,
