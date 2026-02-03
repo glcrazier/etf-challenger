@@ -520,10 +520,10 @@ class TradingAdvisor:
             price_target = current_price - 2 * atr  # 目标价 = 当前价 - 2*ATR
             stop_loss = current_price + atr  # 止损价 = 当前价 + ATR
         elif signal_type == SignalType.HOLD:
-            # 持有建议：较保守的价格目标
-            entry_price = current_price  # 参考价为当前价
+            # 持有建议：设置更优的买入价格（等待回调）
+            entry_price = current_price - 0.5 * atr  # 建议买入价 = 当前价 - 0.5*ATR（等待回调）
             price_target = current_price + 1.5 * atr  # 止盈价 = 当前价 + 1.5*ATR（较保守）
-            stop_loss = current_price - 0.8 * atr  # 止损价 = 当前价 - 0.8*ATR（较宽松）
+            stop_loss = current_price - 1.2 * atr  # 止损价 = 买入价 - 0.7*ATR
         else:
             return None, None, None
 
