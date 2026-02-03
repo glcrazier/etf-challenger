@@ -293,17 +293,18 @@ class ReportDigest:
     @staticmethod
     def _generate_hold_section(recommendations: List[Dict[str, Any]]) -> str:
         """生成持有部分"""
-        if not recommendations or len(recommendations) > 10:
-            # 持有的太多，只显示数量
-            return f"""
-        <div class="section">
-            <h2>🟡 持有建议</h2>
-            <p>共 {len(recommendations)} 只ETF建议持有，详见完整清单。</p>
-        </div>
-        """
+        if not recommendations:
+            return ""
+
+        # 如果持有的太多，可以考虑只显示前15只
+        display_recs = recommendations[:15] if len(recommendations) > 15 else recommendations
 
         rows = []
-        for rec in recommendations:
+        for rec in display_recs:
+            entry_price = f"{rec.get('entry_price', 0):.3f}" if rec.get('entry_price') else "-"
+            target_price = f"{rec.get('price_target', 0):.3f}" if rec.get('price_target') else "-"
+            stop_loss = f"{rec.get('stop_loss', 0):.3f}" if rec.get('stop_loss') else "-"
+
             rows.append(f"""
                 <tr>
                     <td>{rec.get('code', 'N/A')}</td>
@@ -311,8 +312,15 @@ class ReportDigest:
                     <td>{rec.get('current_price', 0):.3f}</td>
                     <td class="{'positive' if rec.get('change_pct', 0) > 0 else 'negative'}">{rec.get('change_pct', 0):+.2f}%</td>
                     <td>{rec.get('score', 0):.1f}</td>
+                    <td class="entry-price">{entry_price}</td>
+                    <td class="price-target">{target_price}</td>
+                    <td class="stop-loss">{stop_loss}</td>
                 </tr>
             """)
+
+        more_note = ""
+        if len(recommendations) > 15:
+            more_note = f"<p class='note'>还有 {len(recommendations) - 15} 只持有建议，详见完整清单。</p>"
 
         return f"""
         <div class="section">
@@ -325,12 +333,16 @@ class ReportDigest:
                         <th>当前价</th>
                         <th>涨跌幅</th>
                         <th>评分</th>
+                        <th>建议买入价</th>
+                        <th>止盈价</th>
+                        <th>止损价</th>
                     </tr>
                 </thead>
                 <tbody>
                     {''.join(rows)}
                 </tbody>
             </table>
+            {more_note}
         </div>
         """
 
@@ -519,6 +531,12 @@ class ReportDigest:
             border-left: 4px solid #f59e0b;
             font-size: 13px;
             border-radius: 4px;
+        }
+        .note {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #666;
+            font-style: italic;
         }
         .section {
             margin: 30px 0;
