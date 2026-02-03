@@ -78,10 +78,12 @@ class ReportGenerator:
             md.append(f"- **置信度**: {ts['confidence']:.0f}%")
             md.append(f"- **风险等级**: {ts['risk_level']}\n")
 
-            if ts.get('price_target') or ts.get('stop_loss'):
+            if ts.get('entry_price') or ts.get('price_target') or ts.get('stop_loss'):
                 md.append("#### 💰 价格参考\n")
+                if ts.get('entry_price'):
+                    md.append(f"- **建议买入价**: {ts['entry_price']:.3f}")
                 if ts.get('price_target'):
-                    md.append(f"- **目标价位**: {ts['price_target']:.3f}")
+                    md.append(f"- **止盈价位**: {ts['price_target']:.3f}")
                 if ts.get('stop_loss'):
                     md.append(f"- **止损价位**: {ts['stop_loss']:.3f}\n")
 

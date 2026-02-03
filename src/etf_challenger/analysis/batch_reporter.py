@@ -416,11 +416,15 @@ class BatchReportGenerator:
         # 持有建议
         if categorized['持有']:
             lines.append("## 🟡 持有建议\n")
-            lines.append("| 代码 | 名称 | 当前价 | 涨跌幅 | 评分 | 年化收益 | 风险 |\n")
-            lines.append("|------|------|--------|--------|------|----------|------|\n")
+            lines.append("| 代码 | 名称 | 当前价 | 建议买入价 | 止盈价 | 止损价 | 涨跌幅 | 评分 | 年化收益 | 风险 |\n")
+            lines.append("|------|------|--------|-----------|--------|--------|--------|------|----------|------|\n")
             for rec in categorized['持有']:
+                entry = f"{rec.entry_price:.3f}" if rec.entry_price else "-"
+                target = f"{rec.price_target:.3f}" if rec.price_target else "-"
+                stop = f"{rec.stop_loss:.3f}" if rec.stop_loss else "-"
                 lines.append(
                     f"| {rec.code} | {rec.name[:10]} | {rec.current_price:.3f} | "
+                    f"{entry} | {target} | {stop} | "
                     f"{rec.change_pct:+.2f}% | {rec.score:.1f} | {rec.annual_return:+.2f}% | {rec.risk_level} |\n"
                 )
             lines.append("")
