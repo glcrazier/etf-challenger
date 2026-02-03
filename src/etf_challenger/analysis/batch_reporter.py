@@ -1,6 +1,7 @@
 """批量ETF投资建议报告生成器"""
 
 import json
+import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
@@ -173,9 +174,6 @@ class BatchReportGenerator:
         Returns:
             更新后的DataFrame
         """
-        import pandas as pd
-        from datetime import datetime
-
         today = datetime.now().strftime("%Y-%m-%d")
 
         # 检查最后一根K线是否是今天
