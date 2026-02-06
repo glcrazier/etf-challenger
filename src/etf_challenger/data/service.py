@@ -76,42 +76,98 @@ class ETFDataService:
         self._cache_time = datetime.now()
         return df
 
+    def _convert_code_to_sina_format(self, code: str) -> str:
+        """
+        将ETF代码转换为新浪格式
+
+        Args:
+            code: ETF代码（如：510300）
+
+        Returns:
+            新浪格式代码（如：sh510300）
+        """
+        # 沪市ETF: 51、50开头 -> sh前缀
+        if code.startswith('51') or code.startswith('50'):
+            return f"sh{code}"
+        # 深市ETF: 15、16开头 -> sz前缀
+        elif code.startswith('15') or code.startswith('16'):
+            return f"sz{code}"
+        else:
+            # 未知格式，尝试沪市
+            return f"sh{code}"
+
     @retry(max_attempts=2, delay=1.0)
     def get_realtime_quote(self, code: str) -> Optional[ETFQuote]:
         """
-        获取ETF实时行情
+        获取ETF实时行情（使用新浪数据源，获取真实市场价格）
+
+        数据源: fund_etf_category_sina
+        - 返回真实的市场交易价格（不是净值）
+        - 包含完整的交易数据（买卖价、成交量、成交额等）
+        - 连接稳定，速度快
 
         Args:
-            code: ETF代码（如：512880）
+            code: ETF代码（如：510300）
 
         Returns:
             ETF实时行情数据
         """
-        # 获取所有ETF实时行情（会使用缓存）
-        df = self.get_etf_list()
+        try:
+            # 使用新浪数据源获取实时行情（真实市场价格）
+            df = ak.fund_etf_category_sina(symbol="ETF基金")
 
-        # 筛选指定代码
-        etf_data = df[df['代码'] == code]
+            # 转换代码格式（510300 -> sh510300）
+            sina_code = self._convert_code_to_sina_format(code)
 
-        if etf_data.empty:
-            return None
+            # 筛选指定代码
+            etf_data = df[df['代码'] == sina_code]
 
-        row = etf_data.iloc[0]
+            if etf_data.empty:
+                return None
 
-        return ETFQuote(
-            code=code,
-            name=row['名称'],
-            price=float(row['最新价']),
-            change=float(row['涨跌额']),
-            change_pct=float(row['涨跌幅']),
-            volume=float(row['成交量']),
-            amount=float(row['成交额']),
-            open_price=float(row['开盘价']),
-            high=float(row['最高价']),
-            low=float(row['最低价']),
-            pre_close=float(row['昨收']),
-            timestamp=datetime.now()
-        )
+            row = etf_data.iloc[0]
+
+            return ETFQuote(
+                code=code,
+                name=row['名称'],
+                price=float(row['最新价']),      # 真实市场价格
+                change=float(row['涨跌额']),
+                change_pct=float(row['涨跌幅']),
+                volume=float(row['成交量']),
+                amount=float(row['成交额']),
+                open_price=float(row['今开']),    # 新浪字段是'今开'
+                high=float(row['最高']),          # 新浪字段是'最高'
+                low=float(row['最低']),           # 新浪字段是'最低'
+                pre_close=float(row['昨收']),
+                timestamp=datetime.now()
+            )
+        except Exception as e:
+            # 如果新浪数据源失败，降级到同花顺数据源（返回净值）
+            try:
+                df = self.get_etf_list()
+                etf_data = df[df['代码'] == code]
+
+                if etf_data.empty:
+                    return None
+
+                row = etf_data.iloc[0]
+
+                return ETFQuote(
+                    code=code,
+                    name=row['名称'],
+                    price=float(row['最新价']),      # 注意：同花顺返回的是净值
+                    change=float(row['涨跌额']),
+                    change_pct=float(row['涨跌幅']),
+                    volume=float(row['成交量']),
+                    amount=float(row['成交额']),
+                    open_price=float(row['开盘价']),
+                    high=float(row['最高价']),
+                    low=float(row['最低价']),
+                    pre_close=float(row['昨收']),
+                    timestamp=datetime.now()
+                )
+            except Exception as e2:
+                raise Exception(f"获取实时行情失败: 新浪数据源错误({str(e)}) / 同花顺数据源错误({str(e2)})")
 
     def get_historical_data(
         self,

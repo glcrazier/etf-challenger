@@ -349,134 +349,104 @@ class BatchReportGenerator:
 
         # 标题
         lines.append(f"# ETF投资建议报告 - {pool_name}")
-        lines.append(f"\n**池描述**: {pool_desc}")
-        lines.append(f"\n**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"\n**分析天数**: {days}天")
-        lines.append(f"\n**ETF数量**: {len(recommendations)}只")
-        lines.append("\n---\n")
+        lines.append(f"\n**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | **分析周期**: {days}天 | **ETF数量**: {len(recommendations)}只")
+        if pool_desc:
+            lines.append(f" | **说明**: {pool_desc}")
+        lines.append("\n\n---\n")
 
-        # 执行摘要
-        lines.append("## 📋 执行摘要\n")
-
+        # 执行摘要 - 紧凑版
         buy_count = len(categorized['强烈买入']) + len(categorized['买入'])
         sell_count = len(categorized['强烈卖出']) + len(categorized['卖出'])
         hold_count = len(categorized['持有'])
 
-        lines.append(f"- 🟢 **建议买入**: {buy_count}只 ({buy_count/len(recommendations)*100:.1f}%)")
-        lines.append(f"- 🔴 **建议卖出**: {sell_count}只 ({sell_count/len(recommendations)*100:.1f}%)")
-        lines.append(f"- 🟡 **建议持有**: {hold_count}只 ({hold_count/len(recommendations)*100:.1f}%)")
+        lines.append("## 📋 执行摘要\n")
+        lines.append(f"🟢 买入 {buy_count}只 | 🟡 持有 {hold_count}只 | 🔴 卖出 {sell_count}只")
 
-        # 最佳/最差
         if recommendations:
             best = recommendations[0]
             worst = recommendations[-1]
-            lines.append(f"\n**最佳标的**: {best.name} ({best.code}) - 评分 {best.score:.1f}")
-            lines.append(f"**最弱标的**: {worst.name} ({worst.code}) - 评分 {worst.score:.1f}")
+            lines.append(f" | 🏆 最佳: {best.name}({best.score:.0f}分) | 📉 最弱: {worst.name}({worst.score:.0f}分)")
 
-        lines.append("\n---\n")
+        lines.append("\n\n---\n")
 
-        # 买入建议详情
-        if categorized['强烈买入'] or categorized['买入']:
-            lines.append("## 🟢 买入建议\n")
+        # 完整清单
+        lines.append("## 📊 投资建议清单\n")
+        lines.append("| 排名 | 代码 | 名称 | 当前价 | 涨跌 | 建议 | 评分 | 置信度 | 止盈价 | 止损价 | 年化收益 | 风险 |\n")
+        lines.append("|:----:|------|------|-------:|-----:|:----:|-----:|-------:|-------:|-------:|---------:|:----:|\n")
 
-            if categorized['强烈买入']:
-                lines.append("### 💚 强烈买入\n")
-                for rec in categorized['强烈买入']:
-                    lines.append(f"#### {rec.name} ({rec.code})\n")
-                    lines.append(f"- **当前价格**: {rec.current_price:.3f} ({rec.change_pct:+.2f}%)")
-                    lines.append(f"- **置信度**: {rec.confidence:.0f}%")
-                    lines.append(f"- **综合评分**: {rec.score:.1f}/100")
-                    lines.append(f"- **年化收益**: {rec.annual_return:+.2f}%")
-                    lines.append(f"- **夏普比率**: {rec.sharpe_ratio:.2f}")
-                    if rec.price_target:
-                        target_gain = (rec.price_target - rec.current_price) / rec.current_price * 100
-                        lines.append(f"- **目标价位**: {rec.price_target:.3f} (潜在收益 {target_gain:+.2f}%)")
-                    if rec.stop_loss:
-                        stop_loss_pct = (rec.stop_loss - rec.current_price) / rec.current_price * 100
-                        lines.append(f"- **止损价位**: {rec.stop_loss:.3f} ({stop_loss_pct:+.2f}%)")
-                    lines.append(f"- **风险等级**: {rec.risk_level}")
-                    lines.append(f"- **建议理由**:")
-                    for reason in rec.reasons:
-                        lines.append(f"  - {reason}")
-                    lines.append("")
-
-            if categorized['买入']:
-                lines.append("### 🟢 买入\n")
-                for rec in categorized['买入']:
-                    lines.append(f"#### {rec.name} ({rec.code})\n")
-                    lines.append(f"- **当前价格**: {rec.current_price:.3f} ({rec.change_pct:+.2f}%)")
-                    lines.append(f"- **置信度**: {rec.confidence:.0f}%")
-                    lines.append(f"- **综合评分**: {rec.score:.1f}/100")
-                    if rec.price_target:
-                        target_gain = (rec.price_target - rec.current_price) / rec.current_price * 100
-                        lines.append(f"- **目标价位**: {rec.price_target:.3f} ({target_gain:+.2f}%)")
-                    lines.append(f"- **建议理由**: {', '.join(rec.reasons[:3])}")
-                    lines.append("")
-
-        # 持有建议
-        if categorized['持有']:
-            lines.append("## 🟡 持有建议\n")
-            lines.append("| 代码 | 名称 | 当前价 | 建议买入价 | 止盈价 | 止损价 | 涨跌幅 | 评分 | 年化收益 | 风险 |\n")
-            lines.append("|------|------|--------|-----------|--------|--------|--------|------|----------|------|\n")
-            for rec in categorized['持有']:
-                entry = f"{rec.entry_price:.3f}" if rec.entry_price else "-"
-                target = f"{rec.price_target:.3f}" if rec.price_target else "-"
-                stop = f"{rec.stop_loss:.3f}" if rec.stop_loss else "-"
-                lines.append(
-                    f"| {rec.code} | {rec.name[:10]} | {rec.current_price:.3f} | "
-                    f"{entry} | {target} | {stop} | "
-                    f"{rec.change_pct:+.2f}% | {rec.score:.1f} | {rec.annual_return:+.2f}% | {rec.risk_level} |\n"
-                )
-            lines.append("")
-
-        # 卖出建议
-        if categorized['卖出'] or categorized['强烈卖出']:
-            lines.append("## 🔴 卖出建议\n")
-
-            if categorized['强烈卖出']:
-                lines.append("### ❌ 强烈卖出\n")
-                for rec in categorized['强烈卖出']:
-                    lines.append(f"#### {rec.name} ({rec.code})\n")
-                    lines.append(f"- **当前价格**: {rec.current_price:.3f} ({rec.change_pct:+.2f}%)")
-                    lines.append(f"- **置信度**: {rec.confidence:.0f}%")
-                    lines.append(f"- **综合评分**: {rec.score:.1f}/100")
-                    lines.append(f"- **年化收益**: {rec.annual_return:+.2f}%")
-                    if rec.stop_loss:
-                        lines.append(f"- **止损价位**: {rec.stop_loss:.3f}")
-                    lines.append(f"- **卖出理由**: {', '.join(rec.reasons[:3])}")
-                    lines.append("")
-
-            if categorized['卖出']:
-                lines.append("### 🔴 卖出\n")
-                lines.append("| 代码 | 名称 | 当前价 | 涨跌幅 | 评分 | 建议理由 |\n")
-                lines.append("|------|------|--------|--------|------|----------|\n")
-                for rec in categorized['卖出']:
-                    lines.append(
-                        f"| {rec.code} | {rec.name[:10]} | {rec.current_price:.3f} | "
-                        f"{rec.change_pct:+.2f}% | {rec.score:.1f} | {rec.reasons[0] if rec.reasons else 'N/A'} |\n"
-                    )
-                lines.append("")
-
-        # 综合排名
-        lines.append("## 📊 综合排名 (按评分)\n")
-        lines.append("| 排名 | 代码 | 名称 | 评分 | 建议 | 置信度 | 年化收益 | 夏普比率 |\n")
-        lines.append("|------|------|------|------|------|--------|----------|----------|\n")
         for i, rec in enumerate(recommendations, 1):
+            # 信号emoji
+            signal_emoji = {
+                '强烈买入': '🚀',
+                '买入': '📈',
+                '持有': '➡️',
+                '卖出': '📉',
+                '强烈卖出': '💥'
+            }.get(rec.signal_type, '❓')
+
+            target = f"{rec.price_target:.3f}" if rec.price_target else "-"
+            stop = f"{rec.stop_loss:.3f}" if rec.stop_loss else "-"
+
             lines.append(
-                f"| #{i} | {rec.code} | {rec.name[:12]} | {rec.score:.1f} | "
-                f"{rec.signal_type} | {rec.confidence:.0f}% | {rec.annual_return:+.2f}% | {rec.sharpe_ratio:.2f} |\n"
+                f"| #{i} | {rec.code} | {rec.name[:10]} | {rec.current_price:.3f} | "
+                f"{rec.change_pct:+.1f}% | {signal_emoji} {rec.signal_type} | {rec.score:.0f} | "
+                f"{rec.confidence:.0f}% | {target} | {stop} | {rec.annual_return:+.1f}% | {rec.risk_level} |\n"
             )
 
+        lines.append("\n---\n")
+
+        # 简洁的个股分析报告
+        lines.append("## 📝 个股分析\n")
+
+        for i, rec in enumerate(recommendations, 1):
+            # 信号emoji和颜色标记
+            if rec.signal_type in ['强烈买入', '买入']:
+                emoji = '🟢'
+            elif rec.signal_type in ['强烈卖出', '卖出']:
+                emoji = '🔴'
+            else:
+                emoji = '🟡'
+
+            lines.append(f"### {emoji} #{i} {rec.name} ({rec.code})\n")
+
+            # 核心数据行
+            lines.append(
+                f"**当前价**: {rec.current_price:.3f} ({rec.change_pct:+.2f}%) | "
+                f"**建议**: {rec.signal_type} | "
+                f"**评分**: {rec.score:.0f}/100 | "
+                f"**置信度**: {rec.confidence:.0f}%\n"
+            )
+
+            # 价格参考行
+            if rec.price_target or rec.stop_loss:
+                price_ref = []
+                if rec.price_target:
+                    gain = (rec.price_target - rec.current_price) / rec.current_price * 100
+                    price_ref.append(f"**止盈**: {rec.price_target:.3f} (+{gain:.1f}%)")
+                if rec.stop_loss:
+                    loss = (rec.stop_loss - rec.current_price) / rec.current_price * 100
+                    price_ref.append(f"**止损**: {rec.stop_loss:.3f} ({loss:.1f}%)")
+                lines.append(" | ".join(price_ref) + "\n")
+
+            # 表现指标行
+            lines.append(
+                f"**年化收益**: {rec.annual_return:+.2f}% | "
+                f"**夏普比率**: {rec.sharpe_ratio:.2f} | "
+                f"**风险等级**: {rec.risk_level}\n"
+            )
+
+            # 分析理由
+            if rec.reasons:
+                lines.append(f"\n**分析要点**: {' | '.join(rec.reasons[:3])}\n")
+
+            lines.append("\n")
+
         # 风险提示
-        lines.append("\n---\n")
+        lines.append("---\n")
         lines.append("## ⚠️ 风险提示\n")
-        lines.append("- 本报告仅供参考，不构成投资建议")
-        lines.append("- 技术分析存在滞后性，市场随时可能变化")
-        lines.append("- 请结合基本面分析和自身风险承受能力做决策")
-        lines.append("- 建议分散投资，控制单一标的仓位")
-        lines.append("- 设置止损位，严格执行风险管理")
+        lines.append("本报告仅供参考，不构成投资建议。技术分析存在滞后性，市场随时可能变化。请结合基本面分析和自身风险承受能力做决策，建议分散投资、控制仓位、严格止损。\n")
         lines.append("\n---\n")
-        lines.append(f"\n*报告生成工具: ETF Challenger v0.2.0*\n")
+        lines.append(f"*报告生成工具: ETF Challenger v0.2.0*\n")
 
         return "".join(lines)
 
@@ -494,8 +464,17 @@ class BatchReportGenerator:
             pool_name, pool_desc, recommendations, categorized, days
         )
 
-        # 转换为HTML并添加样式
-        html_content = self._markdown_to_html(md_content)
+        # 尝试使用markdown库转换
+        try:
+            import markdown
+            from markdown.extensions.tables import TableExtension
+            html_body = markdown.markdown(
+                md_content,
+                extensions=['tables', 'fenced_code', 'nl2br']
+            )
+        except ImportError:
+            # 如果没有markdown库，使用简化版HTML生成
+            html_body = self._generate_simple_html(pool_name, pool_desc, recommendations, categorized, days)
 
         return f"""<!DOCTYPE html>
 <html>
@@ -507,88 +486,359 @@ class BatchReportGenerator:
 </head>
 <body>
     <div class="container">
-        {html_content}
+        {html_body}
     </div>
 </body>
 </html>"""
 
-    def _markdown_to_html(self, md_content: str) -> str:
-        """简单的Markdown到HTML转换"""
-        html = md_content
+    def _generate_simple_html(
+        self,
+        pool_name: str,
+        pool_desc: str,
+        recommendations: List[ETFRecommendation],
+        categorized: Dict[str, List[ETFRecommendation]],
+        days: int
+    ) -> str:
+        """直接生成HTML（不依赖markdown库）"""
+        html = []
 
-        # 标题转换
-        html = html.replace('# ', '<h1>').replace('\n', '</h1>\n', html.count('# '))
-        html = html.replace('## ', '<h2>').replace('\n', '</h2>\n', html.count('## '))
-        html = html.replace('### ', '<h3>').replace('\n', '</h3>\n', html.count('### '))
-        html = html.replace('#### ', '<h4>').replace('\n', '</h4>\n', html.count('#### '))
+        # 标题
+        html.append(f"<h1>ETF投资建议报告 - {pool_name}</h1>")
+        html.append(f"<p><strong>生成时间</strong>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
+                   f"<strong>分析周期</strong>: {days}天 | <strong>ETF数量</strong>: {len(recommendations)}只")
+        if pool_desc:
+            html.append(f" | <strong>说明</strong>: {pool_desc}")
+        html.append("</p>")
+        html.append("<hr>")
 
-        # 粗体
-        import re
-        html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+        # 执行摘要
+        buy_count = len(categorized['强烈买入']) + len(categorized['买入'])
+        sell_count = len(categorized['强烈卖出']) + len(categorized['卖出'])
+        hold_count = len(categorized['持有'])
 
-        # 列表
-        html = re.sub(r'\n- ', r'\n<li>', html)
-        html = re.sub(r'(<li>.*?\n)(?!<li>)', r'<ul>\1</ul>', html, flags=re.DOTALL)
+        html.append("<h2>📋 执行摘要</h2>")
+        html.append(f"<p>🟢 买入 {buy_count}只 | 🟡 持有 {hold_count}只 | 🔴 卖出 {sell_count}只")
 
-        # 段落
-        html = re.sub(r'\n\n', r'</p><p>', html)
-        html = f'<p>{html}</p>'
+        if recommendations:
+            best = recommendations[0]
+            worst = recommendations[-1]
+            html.append(f" | 🏆 最佳: {best.name}({best.score:.0f}分) | 📉 最弱: {worst.name}({worst.score:.0f}分)")
+        html.append("</p>")
+        html.append("<hr>")
 
-        # 表格 (简化处理)
-        html = html.replace('|', '</td><td>').replace('\n<td>', '\n<tr><td>').replace('</td>\n', '</td></tr>\n')
+        # 投资建议清单表格
+        html.append("<h2>📊 投资建议清单</h2>")
+        html.append("<table>")
+        html.append("<thead><tr>")
+        html.append("<th>排名</th><th>代码</th><th>名称</th><th>当前价</th><th>涨跌</th>")
+        html.append("<th>建议</th><th>评分</th><th>置信度</th><th>止盈价</th><th>止损价</th>")
+        html.append("<th>年化收益</th><th>风险</th>")
+        html.append("</tr></thead>")
+        html.append("<tbody>")
 
-        return html
+        for i, rec in enumerate(recommendations, 1):
+            signal_emoji = {
+                '强烈买入': '🚀',
+                '买入': '📈',
+                '持有': '➡️',
+                '卖出': '📉',
+                '强烈卖出': '💥'
+            }.get(rec.signal_type, '❓')
+
+            # 根据建议类型设置行样式
+            row_class = ""
+            if rec.signal_type in ['强烈买入', '买入']:
+                row_class = 'class="buy-row"'
+            elif rec.signal_type in ['强烈卖出', '卖出']:
+                row_class = 'class="sell-row"'
+
+            target = f"{rec.price_target:.3f}" if rec.price_target else "-"
+            stop = f"{rec.stop_loss:.3f}" if rec.stop_loss else "-"
+
+            # 中国市场习惯：涨红跌绿
+            change_color = "red" if rec.change_pct >= 0 else "green"
+
+            html.append(f"<tr {row_class}>")
+            html.append(f"<td>#{i}</td>")
+            html.append(f"<td>{rec.code}</td>")
+            html.append(f"<td>{rec.name}</td>")
+            html.append(f"<td>{rec.current_price:.3f}</td>")
+            html.append(f"<td style='color:{change_color}'>{rec.change_pct:+.1f}%</td>")
+            html.append(f"<td>{signal_emoji} {rec.signal_type}</td>")
+            html.append(f"<td><strong>{rec.score:.0f}</strong></td>")
+            html.append(f"<td>{rec.confidence:.0f}%</td>")
+            html.append(f"<td>{target}</td>")
+            html.append(f"<td>{stop}</td>")
+            # 中国市场习惯：涨红跌绿
+            return_color = "red" if rec.annual_return >= 0 else "green"
+            html.append(f"<td style='color:{return_color}'>{rec.annual_return:+.1f}%</td>")
+            html.append(f"<td>{rec.risk_level}</td>")
+            html.append("</tr>")
+
+        html.append("</tbody></table>")
+        html.append("<hr>")
+
+        # 个股分析
+        html.append("<h2>📝 个股分析</h2>")
+
+        for i, rec in enumerate(recommendations, 1):
+            # 根据信号类型设置颜色
+            if rec.signal_type in ['强烈买入', '买入']:
+                emoji = '🟢'
+                card_class = 'analysis-card buy-card'
+            elif rec.signal_type in ['强烈卖出', '卖出']:
+                emoji = '🔴'
+                card_class = 'analysis-card sell-card'
+            else:
+                emoji = '🟡'
+                card_class = 'analysis-card hold-card'
+
+            html.append(f"<div class='{card_class}'>")
+            html.append(f"<h3>{emoji} #{i} {rec.name} ({rec.code})</h3>")
+
+            # 核心数据
+            html.append("<p class='core-data'>")
+            html.append(f"<strong>当前价</strong>: {rec.current_price:.3f} ({rec.change_pct:+.2f}%) | ")
+            html.append(f"<strong>建议</strong>: {rec.signal_type} | ")
+            html.append(f"<strong>评分</strong>: {rec.score:.0f}/100 | ")
+            html.append(f"<strong>置信度</strong>: {rec.confidence:.0f}%")
+            html.append("</p>")
+
+            # 价格参考
+            if rec.price_target or rec.stop_loss:
+                html.append("<p class='price-ref'>")
+                if rec.price_target:
+                    gain = (rec.price_target - rec.current_price) / rec.current_price * 100
+                    html.append(f"<strong>止盈</strong>: {rec.price_target:.3f} (+{gain:.1f}%)")
+                if rec.price_target and rec.stop_loss:
+                    html.append(" | ")
+                if rec.stop_loss:
+                    loss = (rec.stop_loss - rec.current_price) / rec.current_price * 100
+                    html.append(f"<strong>止损</strong>: {rec.stop_loss:.3f} ({loss:.1f}%)")
+                html.append("</p>")
+
+            # 表现指标
+            html.append("<p class='metrics'>")
+            html.append(f"<strong>年化收益</strong>: {rec.annual_return:+.2f}% | ")
+            html.append(f"<strong>夏普比率</strong>: {rec.sharpe_ratio:.2f} | ")
+            html.append(f"<strong>风险等级</strong>: {rec.risk_level}")
+            html.append("</p>")
+
+            # 分析要点
+            if rec.reasons:
+                html.append("<p class='reasons'>")
+                html.append(f"<strong>分析要点</strong>: {' | '.join(rec.reasons[:3])}")
+                html.append("</p>")
+
+            html.append("</div>")
+
+        # 风险提示
+        html.append("<hr>")
+        html.append("<h2>⚠️ 风险提示</h2>")
+        html.append("<p class='disclaimer'>")
+        html.append("本报告仅供参考，不构成投资建议。技术分析存在滞后性，市场随时可能变化。")
+        html.append("请结合基本面分析和自身风险承受能力做决策，建议分散投资、控制仓位、严格止损。")
+        html.append("</p>")
+
+        html.append("<hr>")
+        html.append("<p style='text-align:center; color:#999; font-size:0.9em;'>")
+        html.append("报告生成工具: ETF Challenger v0.2.0")
+        html.append("</p>")
+
+        return "\n".join(html)
 
     def _get_html_style(self) -> str:
         """获取HTML样式"""
         return """
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+                         'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        .container {
             background: white;
             padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
         }
+
         h1 {
             color: #667eea;
             border-bottom: 3px solid #667eea;
-            padding-bottom: 10px;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            font-size: 2em;
         }
+
         h2 {
             color: #764ba2;
-            margin-top: 30px;
+            margin: 35px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            font-size: 1.5em;
         }
+
         h3 {
             color: #555;
+            margin: 15px 0 10px 0;
+            font-size: 1.2em;
         }
+
+        p {
+            margin: 10px 0;
+            line-height: 1.8;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e0e0e0;
+            margin: 30px 0;
+        }
+
+        /* 表格样式 */
         table {
             width: 100%;
             border-collapse: collapse;
             margin: 20px 0;
+            font-size: 0.95em;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
         }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background-color: #667eea;
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        tr:hover {
-            background-color: #f5f5f5;
+
+        th {
+            padding: 14px 12px;
+            text-align: center;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
-        .buy { color: #22c55e; font-weight: bold; }
-        .sell { color: #ef4444; font-weight: bold; }
-        .hold { color: #f59e0b; font-weight: bold; }
+
+        td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+            transition: background-color 0.2s;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .buy-row {
+            background-color: #f0fdf4;
+        }
+
+        .sell-row {
+            background-color: #fef2f2;
+        }
+
+        /* 个股分析卡片 */
+        .analysis-card {
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #ddd;
+            background: #fafafa;
+        }
+
+        .buy-card {
+            border-left-color: #22c55e;
+            background: linear-gradient(to right, #f0fdf4 0%, #fafafa 100%);
+        }
+
+        .sell-card {
+            border-left-color: #ef4444;
+            background: linear-gradient(to right, #fef2f2 0%, #fafafa 100%);
+        }
+
+        .hold-card {
+            border-left-color: #f59e0b;
+            background: linear-gradient(to right, #fffbeb 0%, #fafafa 100%);
+        }
+
+        .analysis-card h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .core-data {
+            font-size: 1.05em;
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .price-ref {
+            font-size: 0.95em;
+            color: #555;
+            margin: 8px 0;
+        }
+
+        .metrics {
+            font-size: 0.95em;
+            color: #666;
+            margin: 8px 0;
+        }
+
+        .reasons {
+            font-size: 0.9em;
+            color: #777;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed #ddd;
+            font-style: italic;
+        }
+
+        .disclaimer {
+            padding: 15px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+            color: #856404;
+            font-size: 0.95em;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+
+            h2 {
+                font-size: 1.2em;
+            }
+
+            table {
+                font-size: 0.85em;
+            }
+
+            th, td {
+                padding: 8px 6px;
+            }
+        }
     </style>
         """

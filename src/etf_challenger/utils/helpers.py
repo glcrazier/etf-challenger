@@ -83,6 +83,7 @@ def validate_etf_code(code: str) -> bool:
 def get_color_by_value(value: float) -> str:
     """
     根据数值获取颜色（用于终端显示）
+    中国市场习惯：涨红跌绿
 
     Args:
         value: 数值
@@ -91,8 +92,8 @@ def get_color_by_value(value: float) -> str:
         颜色名称
     """
     if value > 0:
-        return "green"
+        return "red"  # 涨：红色
     elif value < 0:
-        return "red"
+        return "green"  # 跌：绿色
     else:
         return "white"
