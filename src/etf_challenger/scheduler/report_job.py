@@ -47,7 +47,10 @@ class ReportJob:
         """
         self.config = config
         self.storage = ReportStorage(config.storage.get_base_path())
-        self.batch_generator = BatchReportGenerator()
+        # 使用绝对路径查找etf_pool.json配置文件
+        import os
+        etf_pool_path = os.path.join(os.path.expanduser("~"), ".etf_challenger", "etf_pool.json")
+        self.batch_generator = BatchReportGenerator(config_path=etf_pool_path)
 
     def execute(self, session: str) -> ReportResult:
         """
