@@ -216,3 +216,4 @@ test_*.py
 
 # Claude Code
 .claude/
+CLAUDE.local.md
