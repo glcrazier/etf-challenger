@@ -515,10 +515,8 @@ class TradingAdvisor:
             price_target = current_price + 2 * atr  # 止盈价 = 当前价 + 2*ATR
             stop_loss = current_price - atr  # 止损价 = 当前价 - ATR
         elif signal_type in [SignalType.STRONG_SELL, SignalType.SELL]:
-            # 卖出建议
-            entry_price = current_price  # 建议卖出价为当前价
-            price_target = current_price - 2 * atr  # 目标价 = 当前价 - 2*ATR
-            stop_loss = current_price + atr  # 止损价 = 当前价 + ATR
+            # 卖出建议：A股不能做空，卖出意味着清仓，不需要止盈/止损价
+            return None, None, None
         elif signal_type == SignalType.HOLD:
             # 持有建议：设置更优的买入价格（等待回调）
             entry_price = current_price - 0.5 * atr  # 建议买入价 = 当前价 - 0.5*ATR（等待回调）
