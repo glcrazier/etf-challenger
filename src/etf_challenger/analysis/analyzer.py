@@ -212,8 +212,8 @@ class ETFAnalyzer:
         drawdown = (cumulative - running_max) / running_max
         max_drawdown = drawdown.min() * 100
 
-        # 夏普比率（假设无风险利率为3%）
-        risk_free_rate = 0.03
+        # 夏普比率（使用中国央行一年期存款基准利率1.5%）
+        risk_free_rate = 0.015
         sharpe_ratio = (annualized_return - risk_free_rate * 100) / volatility if volatility > 0 else 0
 
         return {
