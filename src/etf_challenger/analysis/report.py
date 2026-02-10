@@ -412,6 +412,22 @@ class ReportGenerator:
 
     def _markdown_to_html(self, md: str) -> str:
         """简单的Markdown到HTML转换"""
+        import re
+
+        def convert_bold(text: str) -> str:
+            """转换加粗语法 **text** 为 <strong>text</strong>"""
+            return re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+
+        def convert_italic(text: str) -> str:
+            """转换斜体语法 *text* 为 <em>text</em>"""
+            return re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+
+        def process_inline(text: str) -> str:
+            """处理行内格式"""
+            text = convert_bold(text)
+            text = convert_italic(text)
+            return text
+
         html = []
         in_table = False
         in_list = False
@@ -423,18 +439,20 @@ class ReportGenerator:
                 if in_list:
                     html.append("</ul>")
                     in_list = False
-                html.append("<br/>")
+                if in_table:
+                    html.append("</tbody></table>")
+                    in_table = False
                 continue
 
             # 标题
-            if line.startswith('# '):
-                html.append(f"<h1>{line[2:]}</h1>")
-            elif line.startswith('## '):
-                html.append(f"<h2>{line[3:]}</h2>")
+            if line.startswith('#### '):
+                html.append(f"<h4>{process_inline(line[5:])}</h4>")
             elif line.startswith('### '):
-                html.append(f"<h3>{line[4:]}</h3>")
-            elif line.startswith('#### '):
-                html.append(f"<h4>{line[5:]}</h4>")
+                html.append(f"<h3>{process_inline(line[4:])}</h3>")
+            elif line.startswith('## '):
+                html.append(f"<h2>{process_inline(line[3:])}</h2>")
+            elif line.startswith('# '):
+                html.append(f"<h1>{process_inline(line[2:])}</h1>")
 
             # 表格
             elif line.startswith('|'):
@@ -444,18 +462,18 @@ class ReportGenerator:
 
                 cells = [cell.strip() for cell in line.split('|')[1:-1]]
 
-                if all(c.startswith('-') for c in cells):
+                if all(c.replace('-', '').replace(':', '') == '' for c in cells):
                     continue  # 跳过分隔行
 
                 if not any('<tr>' in h for h in html[-5:]):
                     html.append("<thead><tr>")
                     for cell in cells:
-                        html.append(f"<th>{cell}</th>")
+                        html.append(f"<th>{process_inline(cell)}</th>")
                     html.append("</tr></thead><tbody>")
                 else:
                     html.append("<tr>")
                     for cell in cells:
-                        html.append(f"<td>{cell}</td>")
+                        html.append(f"<td>{process_inline(cell)}</td>")
                     html.append("</tr>")
 
             # 列表
@@ -463,20 +481,21 @@ class ReportGenerator:
                 if not in_list:
                     html.append("<ul>")
                     in_list = True
-                html.append(f"<li>{line[2:]}</li>")
+                html.append(f"<li>{process_inline(line[2:])}</li>")
 
             # 分隔线
             elif line == '---':
                 if in_table:
                     html.append("</tbody></table>")
                     in_table = False
+                if in_list:
+                    html.append("</ul>")
+                    in_list = False
                 html.append("<hr/>")
 
             # 普通文本
             else:
-                # 加粗
-                line = line.replace('**', '<strong>').replace('**', '</strong>')
-                html.append(f"<p>{line}</p>")
+                html.append(f"<p>{process_inline(line)}</p>")
 
         if in_table:
             html.append("</tbody></table>")
