@@ -245,52 +245,168 @@ class ReportGenerator:
         """获取HTML样式"""
         return """
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+                         'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
         }
+
         .container {
             max-width: 900px;
-            margin: 20px auto;
-            padding: 30px;
+            margin: 0 auto;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
         }
-        h1 { color: #2c3e50; margin-bottom: 10px; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
-        h2 { color: #34495e; margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; }
-        h3 { color: #7f8c8d; margin-top: 20px; margin-bottom: 10px; }
-        h4 { color: #95a5a6; margin-top: 15px; margin-bottom: 8px; }
+
+        h1 {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        h2 {
+            color: #764ba2;
+            margin: 35px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            font-size: 1.4em;
+        }
+
+        h3 {
+            color: #555;
+            margin: 20px 0 12px 0;
+            font-size: 1.15em;
+        }
+
+        h4 {
+            color: #666;
+            margin: 15px 0 10px 0;
+            font-size: 1em;
+        }
+
+        p { margin: 10px 0; line-height: 1.8; }
+
+        /* 表格样式 */
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
-            background: white;
+            margin: 20px 0;
+            font-size: 0.95em;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
         }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ecf0f1;
-        }
-        th {
-            background-color: #3498db;
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            font-weight: bold;
         }
-        tr:hover { background-color: #f8f9fa; }
-        ul { margin: 10px 0 10px 20px; }
-        li { margin: 5px 0; }
-        .positive { color: #27ae60; }
-        .negative { color: #e74c3c; }
-        .neutral { color: #95a5a6; }
-        hr { margin: 30px 0; border: none; border-top: 1px solid #ecf0f1; }
+
+        th {
+            padding: 14px 12px;
+            text-align: left;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+            transition: background-color 0.2s;
+        }
+
+        tbody tr:last-child td { border-bottom: none; }
+
+        /* 列表样式 */
+        ul {
+            margin: 15px 0 15px 25px;
+            list-style-type: none;
+        }
+
+        li {
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        li::before {
+            content: "•";
+            color: #667eea;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+
+        /* 中国市场习惯：红涨绿跌 */
+        .positive { color: #ef4444; font-weight: bold; }
+        .negative { color: #22c55e; font-weight: bold; }
+        .neutral { color: #6b7280; }
+
+        hr {
+            margin: 30px 0;
+            border: none;
+            border-top: 1px solid #e0e0e0;
+        }
+
         code {
-            background: #ecf0f1;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
+            background: #f3f4f6;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+
+        /* 信号卡片 */
+        .signal-card {
+            background: linear-gradient(to right, #f0fdf4 0%, #fafafa 100%);
+            border-left: 4px solid #22c55e;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        /* 风险提示 */
+        .disclaimer {
+            padding: 15px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+            color: #856404;
+            font-size: 0.95em;
+            margin: 20px 0;
+        }
+
+        /* 页脚 */
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 20px; }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.2em; }
+            table { font-size: 0.85em; }
+            th, td { padding: 8px 6px; }
         }
         """
 
