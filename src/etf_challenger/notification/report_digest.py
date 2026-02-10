@@ -231,7 +231,6 @@ class ReportDigest:
 
             # 中国市场习惯：涨红跌绿
             change_class = 'positive' if rec.get('change_pct', 0) >= 0 else 'negative'
-            return_class = 'positive' if rec.get('annual_return', 0) >= 0 else 'negative'
 
             # 行样式
             row_class = ""
@@ -247,13 +246,12 @@ class ReportDigest:
                     <td>{rec.get('name', 'N/A')}</td>
                     <td>{rec.get('current_price', 0):.3f}</td>
                     <td class="{change_class}">{rec.get('change_pct', 0):+.1f}%</td>
-                    <td>{signal_emoji} {signal}</td>
+                    <td>{signal_emoji}</td>
                     <td><strong>{rec.get('score', 0):.0f}</strong></td>
                     <td>{rec.get('confidence', 0):.0f}%</td>
                     <td class="entry-price">{entry_price}</td>
                     <td class="price-target">{target_price}</td>
                     <td class="stop-loss">{stop_loss}</td>
-                    <td class="{return_class}">{rec.get('annual_return', 0):+.1f}%</td>
                     <td>{rec.get('risk_level', 'N/A')}</td>
                 </tr>
             """)
@@ -275,7 +273,6 @@ class ReportDigest:
                         <th>建议买入价</th>
                         <th>止盈价</th>
                         <th>止损价</th>
-                        <th>年化收益</th>
                         <th>风险</th>
                     </tr>
                 </thead>
