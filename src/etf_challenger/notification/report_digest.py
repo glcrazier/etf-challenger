@@ -76,7 +76,7 @@ class ReportDigest:
 </head>
 <body>
     <div class="container">
-        <h1>📊 ETF投资建议日报 - {', '.join(pools)}</h1>
+        <h1>📊 ETF投资建议日报</h1>
         <p class="subtitle">{date_str} {session_cn} | 生成时间: {time_str} | 分析周期: 60天 | ETF数量: {stats['total']}只</p>
 
         <div class="summary">
@@ -205,8 +205,11 @@ class ReportDigest:
         if not recommendations:
             return ""
 
+        # 按评分从高到低排序
+        sorted_recs = sorted(recommendations, key=lambda x: x.get('score', 0), reverse=True)
+
         rows = []
-        for i, rec in enumerate(recommendations, 1):
+        for i, rec in enumerate(sorted_recs, 1):
             # 信号emoji
             signal = rec.get('signal', 'N/A')
             signal_emoji = {
