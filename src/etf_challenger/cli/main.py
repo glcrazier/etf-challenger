@@ -1202,6 +1202,97 @@ def trigger(session, pools):
             console.print(f"  - {error}")
 
 
+@monitor.command('send-email')
+@click.option('--session', type=click.Choice(['morning', 'afternoon']), default='afternoon', help='时段（默认尾盘）')
+@click.option('--date', type=str, default=None, help='日期（YYYY-MM-DD格式，默认今天）')
+def send_email(session, date):
+    """手动发送邮件日报
+
+    发送已生成的报告邮件。如果当天没有生成报告，会先生成报告再发送。
+
+    示例:
+        etf monitor send-email                          # 发送今天的尾盘报告
+        etf monitor send-email --session morning        # 发送今天的早盘报告
+        etf monitor send-email --date 2026-02-10        # 发送指定日期的报告
+    """
+    from datetime import datetime
+    from ..config.scheduler_config import SchedulerConfig
+    from ..notification.email_service import EmailService
+    from ..notification.report_digest import ReportDigest
+    from ..storage.report_storage import ReportStorage
+    from ..scheduler.report_job import ReportJob
+
+    try:
+        config = SchedulerConfig.from_file()
+
+        # 验证邮件配置
+        errors = config.email.validate()
+        if errors:
+            console.print("[red]邮件配置错误:[/red]")
+            for error in errors:
+                console.print(f"  - {error}")
+            console.print("\n[yellow]请先使用 'etf monitor config' 配置邮箱信息[/yellow]")
+            return
+
+        # 解析日期
+        if date:
+            try:
+                report_date = datetime.strptime(date, '%Y-%m-%d')
+            except ValueError:
+                console.print("[red]日期格式错误，请使用 YYYY-MM-DD 格式[/red]")
+                return
+        else:
+            report_date = datetime.now()
+
+        # 获取汇总数据
+        storage = ReportStorage(config.storage.get_base_path())
+        summary_data = storage.get_summary(report_date, session)
+
+        # 如果没有数据，先生成报告
+        if not summary_data:
+            console.print(f"[yellow]未找到 {report_date:%Y-%m-%d} {session} 的报告，正在生成...[/yellow]")
+            job = ReportJob(config)
+            result = job.execute(session)
+            if not result.success:
+                console.print("[red]报告生成失败[/red]")
+                return
+            summary_data = storage.get_summary(report_date, session)
+
+        if not summary_data:
+            console.print("[red]无法获取报告数据[/red]")
+            return
+
+        # 生成邮件内容
+        session_cn = '早盘' if session == 'morning' else '尾盘'
+        subject = f"[ETF监控] {report_date:%Y-%m-%d} {session_cn}报告"
+
+        with console.status(f"[cyan]正在生成邮件内容...[/cyan]"):
+            html_content = ReportDigest.generate_html_digest(
+                session=session,
+                recommendations=summary_data.get('recommendations', []),
+                pools=config.watchlists.pools
+            )
+
+        # 发送邮件
+        with console.status(f"[cyan]正在发送邮件...[/cyan]"):
+            email_service = EmailService(config.email)
+            email_service.send_email(
+                subject=subject,
+                body=html_content,
+                body_type='html'
+            )
+
+        console.print(f"[green]✓ 邮件已发送[/green]")
+        console.print(f"  主题: {subject}")
+        console.print(f"  收件人: {', '.join(config.email.recipients)}")
+
+    except FileNotFoundError:
+        console.print("[red]未找到配置文件[/red]")
+        console.print("[yellow]请先使用 'etf monitor config' 配置邮箱信息[/yellow]")
+    except Exception as e:
+        console.print(f"[red]发送失败: {e}[/red]")
+
+
 @monitor.command('config')
 @click.option('--email', prompt='发件邮箱', help='163邮箱地址')
 @click.option('--password', prompt='授权码', hide_input=True, help='163邮箱授权码')
