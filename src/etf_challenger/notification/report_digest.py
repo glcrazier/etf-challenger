@@ -259,27 +259,29 @@ class ReportDigest:
         return f"""
         <div class="section">
             <h2>📊 投资建议清单</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>排名</th>
-                        <th>代码</th>
-                        <th>名称</th>
-                        <th>当前价</th>
-                        <th>涨跌</th>
-                        <th>建议</th>
-                        <th>评分</th>
-                        <th>置信度</th>
-                        <th>建议买入价</th>
-                        <th>止盈价</th>
-                        <th>止损价</th>
-                        <th>风险</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(rows)}
-                </tbody>
-            </table>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>代码</th>
+                            <th>名称</th>
+                            <th>当前价</th>
+                            <th>涨跌</th>
+                            <th>建议</th>
+                            <th>评分</th>
+                            <th>置信度</th>
+                            <th>建议买入价</th>
+                            <th>止盈价</th>
+                            <th>止损价</th>
+                            <th>风险</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(rows)}
+                    </tbody>
+                </table>
+            </div>
         </div>
         """
 
@@ -660,6 +662,12 @@ class ReportDigest:
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        html, body {
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
                          'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
@@ -671,11 +679,19 @@ class ReportDigest:
 
         .container {
             max-width: 1200px;
+            width: 100%;
             margin: 0 auto;
             background: white;
             padding: 40px;
             border-radius: 12px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+
+        /* 表格容器，允许水平滚动 */
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         h1 {
@@ -934,28 +950,58 @@ class ReportDigest:
 
         /* 响应式设计 */
         @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
             .container {
-                padding: 20px;
+                padding: 15px;
+                border-radius: 8px;
             }
 
             h1 {
-                font-size: 1.5em;
+                font-size: 1.3em;
+                word-break: break-word;
             }
 
             h2 {
-                font-size: 1.2em;
+                font-size: 1.1em;
             }
 
             table {
-                font-size: 0.85em;
+                font-size: 0.75em;
+                min-width: 600px;
             }
 
             th, td {
-                padding: 8px 6px;
+                padding: 6px 4px;
+                white-space: nowrap;
             }
 
             .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+            }
+
+            .stat-item {
+                padding: 10px 5px;
+            }
+
+            .stat-value {
+                font-size: 18px;
+            }
+
+            .stat-label {
+                font-size: 10px;
+            }
+
+            .analysis-card {
+                padding: 12px;
+            }
+
+            .pool-list {
+                font-size: 12px;
+                word-break: break-word;
             }
         }
     </style>
