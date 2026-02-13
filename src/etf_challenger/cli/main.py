@@ -1101,7 +1101,7 @@ def start(daemon, config):
             console.print("[red]✗ 守护进程启动失败[/red]")
     else:
         console.print("[cyan]启动监控服务（前台模式）...[/cyan]")
-        config_obj = SchedulerConfig.from_file(config) if config else SchedulerConfig.default()
+        config_obj = SchedulerConfig.from_file(Path(config) if config else None)
 
         # 验证配置
         errors = config_obj.validate()

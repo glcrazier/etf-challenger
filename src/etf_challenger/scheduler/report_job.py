@@ -71,8 +71,18 @@ class ReportJob:
 
         report_date = datetime.now()
 
-        # 遍历所有ETF池
-        for pool_name in self.config.watchlists.pools:
+        # 遍历所有ETF池（从etf_pool.json动态读取，支持热加载）
+        # 优先使用etf_pool.json中的池列表，但只处理scheduler_config中指定的池
+        available_pools = self.batch_generator.get_pool_list()
+        configured_pools = self.config.watchlists.pools
+
+        # 取交集：只处理同时存在于etf_pool.json和scheduler_config中的池
+        pool_list = [p for p in configured_pools if p in available_pools]
+
+        if not pool_list:
+            logger.warning(f"没有可处理的ETF池。配置池: {configured_pools}, 可用池: {available_pools}")
+
+        for pool_name in pool_list:
             try:
                 logger.info(f"正在处理ETF池: {pool_name}")
 
