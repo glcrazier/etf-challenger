@@ -43,18 +43,25 @@ class BatchReportGenerator:
             config_path: ETF池配置文件路径
         """
         self.config_path = Path(config_path)
-        self.config = self._load_config()
+        self._config_cache = None
+        self._config_mtime = None
         self.data_service = ETFDataService()
         self.analyzer = ETFAnalyzer()
         self.advisor = TradingAdvisor()
 
-    def _load_config(self) -> Dict:
-        """加载配置文件"""
+    @property
+    def config(self) -> Dict:
+        """获取配置（自动检测文件变化并重新加载）"""
         if not self.config_path.exists():
             raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
 
-        with open(self.config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        current_mtime = self.config_path.stat().st_mtime
+        if self._config_cache is None or self._config_mtime != current_mtime:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                self._config_cache = json.load(f)
+            self._config_mtime = current_mtime
+
+        return self._config_cache
 
     def get_pool_list(self) -> List[str]:
         """获取所有池的名称"""
