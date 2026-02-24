@@ -542,39 +542,98 @@ def batch(pool, days, output, format, list_pools):
         traceback.print_exc()
 
 
+def _save_screen_results_to_pool(results, pool_name, etf_type, screener, min_scale, max_fee):
+    """将筛选结果写入 etf_pool.json 的指定池"""
+    import json
+    from pathlib import Path
+
+    pool_file = Path("etf_pool.json")
+    if pool_file.exists():
+        with open(pool_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    else:
+        config = {"pools": {}, "default_pool": pool_name}
+
+    codes = [r.code for r in results]
+    total_scale = sum(r.scale for r in results)
+    avg_liquidity = sum(r.liquidity_score for r in results) / len(results) if results else 0
+
+    if etf_type == '债券':
+        type_desc = "债券ETF"
+        note = f"etf screen --bond --top {len(results)}"
+    else:
+        type_desc = "股票ETF"
+        note = f"etf screen --top {len(results)}"
+
+    config['pools'][pool_name] = {
+        "description": f"{pool_name} — 由筛选器自动生成({type_desc}，按流动性排序)",
+        "etfs": codes,
+        "stats": {
+            "total_scale": f"{total_scale:.2f}亿份",
+            "avg_liquidity": round(avg_liquidity, 1),
+            "update_date": datetime.now().strftime("%Y-%m-%d"),
+            "note": f"来源: {note} --min-scale {min_scale} --max-fee {max_fee}"
+        }
+    }
+
+    with open(pool_file, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+    console.print(f"\n[green]✓ 已将 {len(codes)} 支ETF保存到池 \"{pool_name}\"[/green]")
+    console.print(f"[dim]  配置文件: {pool_file.resolve()}[/dim]")
+    console.print(f"[dim]  可用命令: etf batch --pool {pool_name}[/dim]")
+
+
 @cli.command()
 @click.option('--top', '-t', default=10, help='返回前N支ETF')
-@click.option('--min-scale', '-s', default=5.0, help='最小规模(亿份)')
-@click.option('--max-fee', '-f', default=0.60, help='最大费率(%)')
+@click.option('--min-scale', '-s', default=None, type=float, help='最小规模(亿份),默认股票ETF为5,债券ETF为0.05')
+@click.option('--max-fee', '-f', default=None, type=float, help='最大费率(%),默认股票ETF为0.60,债券ETF为0.30')
 @click.option('--with-volume', '-v', is_flag=True, help='包含成交量分析(耗时较长)')
 @click.option('--dedup/--no-dedup', default=True, help='是否按指数去重(默认开启)')
-def screen(top, min_scale, max_fee, with_volume, dedup):
+@click.option('--bond', '-b', is_flag=True, help='筛选债券ETF(默认筛选股票ETF)')
+@click.option('--save-pool', default=None, metavar='POOL_NAME', help='将筛选结果保存到ETF池(写入etf_pool.json)')
+def screen(top, min_scale, max_fee, with_volume, dedup, bond, save_pool):
     """筛选流动性好、费率低的ETF
 
     根据基金规模和成交量筛选流动性最好的ETF。
-    默认启用指数去重,相同指数只保留最优一支。
+    默认启用指数去重,相同指数/债券品种只保留最优一支。
 
     示例:
-        etf screen                           # 使用默认参数(去重)
-        etf screen --no-dedup                # 关闭去重
-        etf screen --top 20                  # 返回前20支
-        etf screen --min-scale 10            # 最小规模10亿份
-        etf screen --max-fee 0.50            # 最大费率0.50%
-        etf screen --with-volume             # 包含成交量分析
+        etf screen                                  # 筛选股票ETF(默认)
+        etf screen --bond                           # 筛选债券ETF
+        etf screen --bond --top 15                  # 筛选前15支债券ETF
+        etf screen --bond --save-pool 债券ETF       # 筛选并保存到池
+        etf screen --no-dedup                       # 关闭去重
+        etf screen --top 20                         # 返回前20支
+        etf screen --min-scale 10                   # 最小规模10亿份
+        etf screen --max-fee 0.50                   # 最大费率0.50%
+        etf screen --with-volume                    # 包含成交量分析
     """
     from ..analysis.screener import ETFScreener
 
+    # 根据类型设置默认参数
+    if bond:
+        etf_type = '债券'
+        # 债券ETF单价通常远高于股票ETF(国债类约100元/份),需用更低的份额阈值
+        actual_min_scale = min_scale if min_scale is not None else 0.05
+        actual_max_fee = max_fee if max_fee is not None else 0.30
+    else:
+        etf_type = '股票'
+        actual_min_scale = min_scale if min_scale is not None else 5.0
+        actual_max_fee = max_fee if max_fee is not None else 0.60
+
     try:
         with Progress() as progress:
-            task = progress.add_task("[cyan]正在筛选ETF...", total=None)
+            task_label = "[cyan]正在筛选债券ETF..." if bond else "[cyan]正在筛选ETF..."
+            task = progress.add_task(task_label, total=None)
 
             screener = ETFScreener()
             results = screener.screen_etfs(
                 top_n=top,
-                min_scale=min_scale,
-                max_fee_rate=max_fee,
+                min_scale=actual_min_scale,
+                max_fee_rate=actual_max_fee,
                 include_volume=with_volume,
-                etf_type='股票',
+                etf_type=etf_type,
                 dedup_by_index=dedup
             )
 
@@ -585,19 +644,23 @@ def screen(top, min_scale, max_fee, with_volume, dedup):
             return
 
         # 显示筛选结果
-        console.print(f"\n[green]✓ 找到 {len(results)} 支符合条件的ETF[/green]\n")
-        console.print(f"[dim]筛选条件: 最小规模 {min_scale}亿份, 最大费率 {max_fee}%[/dim]")
+        type_label = "债券" if bond else "股票"
+        console.print(f"\n[green]✓ 找到 {len(results)} 支符合条件的{type_label}ETF[/green]\n")
+        console.print(f"[dim]筛选条件: 最小规模 {actual_min_scale}亿份, 最大费率 {actual_max_fee}%[/dim]")
         if dedup:
-            console.print(f"[dim]指数去重: 已启用(相同指数只保留最优一支)[/dim]\n")
+            dedup_label = "债券品种去重" if bond else "指数去重"
+            console.print(f"[dim]{dedup_label}: 已启用(相同品种只保留最优一支)[/dim]\n")
         else:
-            console.print(f"[dim]指数去重: 已关闭[/dim]\n")
+            console.print(f"[dim]去重: 已关闭[/dim]\n")
 
         # 创建结果表格
-        table = Table(title="流动性优选ETF", show_header=True, header_style="bold magenta")
+        table_title = "流动性优选债券ETF" if bond else "流动性优选ETF"
+        type_col_name = "债券品种" if bond else "指数类型"
+        table = Table(title=table_title, show_header=True, header_style="bold magenta")
         table.add_column("排名", style="cyan", justify="center")
         table.add_column("代码", style="cyan")
         table.add_column("名称")
-        table.add_column("指数类型", style="green")
+        table.add_column(type_col_name, style="green")
         table.add_column("交易所", justify="center")
         table.add_column("规模(亿份)", justify="right")
         table.add_column("流动性评分", justify="right")
@@ -616,14 +679,17 @@ def screen(top, min_scale, max_fee, with_volume, dedup):
             else:
                 score_color = "white"
 
-            # 提取指数类型
-            index_type = screener.extract_index_name(result.name)
+            # 提取指数/债券品种类型
+            if bond:
+                type_label_str = screener.extract_bond_type(result.name)
+            else:
+                type_label_str = screener.extract_index_name(result.name)
 
             row_data = [
                 f"#{i}",
                 result.code,
                 result.name[:20],  # 限制名称长度
-                index_type[:12],  # 限制指数类型长度
+                type_label_str[:12],  # 限制类型长度
                 result.exchange,
                 f"{result.scale:.2f}",
                 f"[{score_color}]{result.liquidity_score:.1f}[/{score_color}]"
@@ -641,7 +707,7 @@ def screen(top, min_scale, max_fee, with_volume, dedup):
         console.print(table)
 
         # 显示统计信息
-        console.print("\n[bold]📊 统计信息[/bold]\n")
+        console.print("\n[bold]统计信息[/bold]\n")
 
         total_scale = sum(r.scale for r in results)
         avg_score = sum(r.liquidity_score for r in results) / len(results)
@@ -656,15 +722,20 @@ def screen(top, min_scale, max_fee, with_volume, dedup):
                 console.print(f"平均成交额: {avg_amount:.2f} 亿元/天")
 
         # 推荐说明
-        console.print("\n[bold]💡 使用建议[/bold]\n")
+        console.print("\n[bold]使用建议[/bold]\n")
         console.print("• 流动性评分 >= 80: 优秀,适合大额交易")
         console.print("• 流动性评分 60-80: 良好,适合中等规模交易")
         console.print("• 流动性评分 < 60: 一般,建议小额交易")
-        console.print(f"• 当前筛选的ETF费率均 <= {max_fee}%")
+        console.print(f"• 当前筛选的ETF费率均 <= {actual_max_fee}%")
+        if bond:
+            console.print("• 债券ETF波动较小,适合稳健型投资者配置")
+            console.print("• 可转债ETF兼具债券安全性和股票成长性")
+            console.print("• 国债ETF流动性好,适合短期资金停泊")
 
         # 显示前3名的详细信息
         if len(results) >= 3:
-            console.print("\n[bold]🏆 流动性前三名[/bold]\n")
+            top_label = "流动性前三名"
+            console.print(f"\n[bold]{top_label}[/bold]\n")
             for i, result in enumerate(results[:3], 1):
                 console.print(f"{i}. {result.name} ({result.code})")
                 console.print(f"   规模: {result.scale:.2f}亿份, 评分: {result.liquidity_score:.1f}")
@@ -673,6 +744,198 @@ def screen(top, min_scale, max_fee, with_volume, dedup):
                 if result.fund_manager:
                     console.print(f"   管理人: {result.fund_manager}")
                 console.print()
+
+        # 保存到ETF池
+        if save_pool:
+            _save_screen_results_to_pool(
+                results=results,
+                pool_name=save_pool,
+                etf_type=etf_type,
+                screener=screener,
+                min_scale=actual_min_scale,
+                max_fee=actual_max_fee,
+            )
+
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+@cli.command(name='bond')
+@click.argument('code')
+@click.option('--days', '-d', default=60, help='分析天数（默认60天）')
+def bond_analyze(code, days):
+    """分析债券ETF（债券特定指标与交易信号）
+
+    使用债券调整参数分析场内债券ETF，提供：
+    - 债券品种识别与久期分类
+    - 利率敏感性评估
+    - 溢价/折价分析（对债券ETF更重要）
+    - 债券调整后的技术信号（RSI阈值40/60、趋势阈值±0.5%）
+
+    示例:
+        etf bond 511380         # 分析转债ETF
+        etf bond 511010 --days 90  # 分析国债ETF(90天)
+        etf bond 511090         # 分析30年国债ETF
+    """
+    from ..analysis.bond_advisor import BondAdvisor, RATE_RISE_IMPACT
+    from ..analysis.analyzer import ETFAnalyzer
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task(f"[cyan]正在分析债券ETF {code}...", total=None)
+
+            # 获取实时行情
+            quote = data_service.get_realtime_quote(code)
+            if not quote:
+                console.print(f"[red]错误: 无法获取 {code} 的行情数据[/red]")
+                return
+
+            # 获取历史数据
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+            df = data_service.get_historical_data(code, start_date, end_date)
+            if df.empty:
+                console.print(f"[red]错误: 无法获取 {code} 的历史数据[/red]")
+                return
+
+            # 计算技术指标
+            df = analyzer.calculate_returns(df)
+            df = analyzer.calculate_moving_averages(df)
+            df = analyzer.calculate_rsi(df)
+            df = analyzer.calculate_macd(df)
+            df = analyzer.calculate_bollinger_bands(df)
+
+            # 溢价率
+            premium_rate = None
+            try:
+                premium_list = data_service.calculate_premium_discount(code, 5)
+                if premium_list:
+                    premium_rate = premium_list[-1].premium_rate
+            except Exception:
+                pass
+
+            # 债券分析
+            bond_advisor = BondAdvisor()
+            result = bond_advisor.analyze(
+                df=df,
+                code=code,
+                name=quote.name,
+                current_price=quote.price,
+                change_pct=quote.change_pct,
+                premium_rate=premium_rate,
+            )
+
+            progress.update(task, completed=True)
+
+        # ── 显示结果 ──────────────────────────────────────────────────────
+
+        # 标题
+        change_color = "red" if result.change_pct >= 0 else "green"
+        console.print(f"\n[bold]债券ETF分析报告[/bold]  {result.name} ({result.code})\n")
+
+        # 基本信息 + 债券元数据
+        meta_table = Table(show_header=False, box=None, padding=(0, 2))
+        meta_table.add_column("项目", style="dim")
+        meta_table.add_column("值", style="bold")
+        meta_table.add_column("项目", style="dim")
+        meta_table.add_column("值", style="bold")
+
+        meta_table.add_row(
+            "当前价格", f"[{change_color}]{result.current_price:.4f}  {result.change_pct:+.2f}%[/{change_color}]",
+            "债券品种", result.bond_type,
+        )
+        meta_table.add_row(
+            "分析区间", f"{days}天",
+            "久期类型", result.duration_category,
+        )
+        meta_table.add_row(
+            "典型期限", result.typical_maturity,
+            "利率敏感性", result.rate_sensitivity,
+        )
+        if result.premium_rate is not None:
+            pr_color = "green" if result.premium_rate < -0.5 else ("red" if result.premium_rate > 0.5 else "white")
+            meta_table.add_row(
+                "溢价率", f"[{pr_color}]{result.premium_rate:+.4f}%[/{pr_color}]",
+                "风险等级", result.risk_level,
+            )
+        else:
+            meta_table.add_row("风险等级", result.risk_level, "", "")
+
+        console.print(meta_table)
+        console.print(f"\n[dim]品种说明: {result.bond_description}[/dim]")
+        console.print(f"[dim]利率风险: {RATE_RISE_IMPACT.get(result.rate_sensitivity, '')}[/dim]\n")
+
+        # 收益与风险指标
+        console.print("[bold]收益与风险[/bold]")
+        perf_table = Table(show_header=True, header_style="bold magenta", show_edge=False)
+        perf_table.add_column("区间总收益", justify="right")
+        perf_table.add_column("年化收益", justify="right")
+        perf_table.add_column("年化波动率", justify="right")
+        perf_table.add_column("最大回撤", justify="right")
+        perf_table.add_column("夏普比率", justify="right")
+
+        ret_color = "red" if result.annual_return >= 0 else "green"
+        perf_table.add_row(
+            f"[{ret_color}]{result.total_return:+.3f}%[/{ret_color}]",
+            f"[{ret_color}]{result.annual_return:+.2f}%[/{ret_color}]",
+            f"{result.volatility:.2f}%",
+            f"[green]{result.max_drawdown:.2f}%[/green]",
+            f"{result.sharpe_ratio:.2f}",
+        )
+        console.print(perf_table)
+        console.print()
+
+        # 技术指标状态
+        console.print("[bold]技术指标（债券调整参数）[/bold]")
+        ind_table = Table(show_header=True, header_style="bold magenta", show_edge=False)
+        ind_table.add_column("指标", style="cyan")
+        ind_table.add_column("状态", justify="center")
+
+        signal_colors = {'看涨': 'red', '中性': 'white', '看跌': 'green'}
+        for ind_name, ind_val in result.indicators.items():
+            color = signal_colors.get(ind_val, 'white')
+            ind_table.add_row(ind_name, f"[{color}]{ind_val}[/{color}]")
+        console.print(ind_table)
+        console.print()
+
+        # 综合建议
+        sig = result.signal
+        sig_colors = {
+            '强烈买入': 'bold red', '买入': 'red',
+            '持有': 'yellow', '卖出': 'green', '强烈卖出': 'bold green'
+        }
+        sig_color = sig_colors.get(sig.signal_type.value, 'white')
+        console.print("[bold]综合交易建议[/bold]")
+        console.print(
+            f"  信号: [{sig_color}]{sig.signal_type.value}[/{sig_color}]  "
+            f"置信度: {sig.confidence:.0f}%  风险: {sig.risk_level}"
+        )
+        if sig.entry_price:
+            console.print(f"  建议买入价: {sig.entry_price:.4f}", end="")
+            if sig.price_target:
+                console.print(f"  止盈价: {sig.price_target:.4f}", end="")
+            if sig.stop_loss:
+                console.print(f"  止损价: {sig.stop_loss:.4f}", end="")
+            console.print()
+
+        console.print("\n[bold]分析要点[/bold]")
+        for reason in sig.reasons:
+            console.print(f"  {reason}")
+
+        # 债券特定提示
+        console.print(f"\n[bold]债券投资注意事项[/bold]")
+        if result.bond_type == '可转债':
+            console.print("  • 可转债受正股价格影响较大，建议同步关注正股走势")
+            console.print("  • 转股溢价率高时价格受利率驱动，低时受正股驱动")
+        elif result.rate_sensitivity in ('高', '极高'):
+            console.print(f"  • 久期较长({result.typical_maturity})，利率上升将导致较大价格损失")
+            console.print("  • 适合判断利率下行趋势时配置，不适合震荡市")
+        elif result.rate_sensitivity == '低':
+            console.print("  • 短期限债券，对利率变动不敏感，适合资金临时停泊")
+        console.print(f"  • {RATE_RISE_IMPACT.get(result.rate_sensitivity, '')}")
+        console.print("  • 债券ETF的买卖信号参考意义弱于股票ETF，溢价率更值得关注")
 
     except Exception as e:
         console.print(f"[red]错误: {str(e)}[/red]")

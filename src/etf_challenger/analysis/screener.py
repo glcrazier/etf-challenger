@@ -48,8 +48,32 @@ class ETFScreener:
             '515880': 0.60,  # 通信设备ETF
             '512980': 0.60,  # 传媒ETF
 
+            # 债券ETF (费率通常较低)
+            '511010': 0.15,  # 国债ETF
+            '511020': 0.15,  # 国开ETF
+            '511260': 0.15,  # 十年国债ETF
+            '511090': 0.15,  # 30年国债ETF
+            '511100': 0.15,  # 政金债ETF
+            '511220': 0.15,  # 5年国债ETF
+            '511030': 0.15,  # 上证5年期国债ETF
+            '511280': 0.15,  # 上证10年期国债ETF
+            '511270': 0.15,  # 中期国债ETF
+            '511380': 0.20,  # 转债ETF(可转债)
+            '511250': 0.20,  # 短融ETF
+            '511060': 0.15,  # 5年地债ETF
+            '511130': 0.15,  # 国债30年ETF
+            '511160': 0.15,  # 国债东财ETF
+            '511270': 0.15,  # 10年地债ETF
+            '511580': 0.15,  # 国债政金ETF
+            '159972': 0.30,  # 可转债ETF
+            '159996': 0.20,  # 政金债ETF(深交所)
+            '159995': 0.20,  # 信用债ETF(深交所)
+            '511130': 0.20,  # 城投债ETF
+            '511060': 0.20,  # 信用债ETF
+
             # 默认费率
-            'default': 0.60  # 默认管理费率
+            'default': 0.60,       # 股票ETF默认管理费率
+            'bond_default': 0.20,  # 债券ETF默认管理费率
         }
 
     @retry(max_attempts=3, delay=1.0)
@@ -207,17 +231,57 @@ class ETFScreener:
 
         return min(100, score)
 
-    def get_fee_rate(self, code: str) -> float:
+    def get_fee_rate(self, code: str, etf_type: str = '股票') -> float:
         """
         获取ETF费率(管理费率)
 
         Args:
             code: ETF代码
+            etf_type: ETF类型('股票'/'债券')
 
         Returns:
             年化管理费率(%)
         """
-        return self.fee_rates.get(code, self.fee_rates['default'])
+        if code in self.fee_rates and code not in ('default', 'bond_default'):
+            return self.fee_rates[code]
+        if etf_type == '债券':
+            return self.fee_rates['bond_default']
+        return self.fee_rates['default']
+
+    def extract_bond_type(self, etf_name: str) -> str:
+        """
+        从债券ETF名称中提取债券品种类型
+
+        Args:
+            etf_name: ETF名称
+
+        Returns:
+            债券品种标识(归一化后)
+        """
+        bond_patterns = [
+            ('可转债', ['可转债', '转债']),                           # 可转债(两种写法)
+            ('科创债', ['科创债']),                                   # 科创板专项债
+            ('30年国债', ['30年国债', '三十年国债', '国债30年']),
+            ('10年国债', ['10年国债', '十年国债']),
+            ('5年国债', ['5年国债', '五年国债']),
+            ('国开债', ['国开债', '国开行']),
+            ('政金债', ['政金债', '政策性金融债']),
+            ('地方债', ['地债', '地方债']),
+            ('城投债', ['城投债', '城投']),
+            ('短债', ['短债', '短期债', '短融']),
+            ('信用债', ['信用债', '企业债', '公司债']),
+            ('国债', ['国债']),                                       # 通用国债(放在具体品种后)
+            ('利率债', ['利率债']),
+            ('中债', ['中债']),
+        ]
+
+        for bond_type, patterns in bond_patterns:
+            for pattern in patterns:
+                if pattern in etf_name:
+                    return bond_type
+
+        clean_name = etf_name.replace('ETF', '').replace('LOF', '').strip()
+        return clean_name
 
     def extract_index_name(self, etf_name: str) -> str:
         """
@@ -302,11 +366,20 @@ class ETFScreener:
         # 筛选条件1: 最小规模
         scale_df = scale_df[scale_df['scale'] >= min_scale]
 
-        # 筛选条件2: 股票型ETF
-        if etf_type:
-            # 通过名称简单过滤(包含"股票"或常见股票ETF关键词)
-            stock_keywords = ['ETF', 'etf']  # 基本上所有ETF都包含这个
-            # 排除货币、债券类
+        # 筛选条件2: ETF类型过滤
+        if etf_type == '债券':
+            # 保留债券类ETF(包含债券关键词,排除货币/理财)
+            bond_keywords = ['债']
+            exclude_keywords = ['货币', '理财', '联接']
+
+            mask = scale_df['name'].str.contains('|'.join(bond_keywords), na=False)
+            for keyword in exclude_keywords:
+                mask &= ~scale_df['name'].str.contains(keyword, na=False)
+
+            scale_df = scale_df[mask]
+        elif etf_type:
+            # 股票型ETF: 排除货币、债券、理财类
+            stock_keywords = ['ETF', 'etf']
             exclude_keywords = ['货币', '债', '理财', '短融']
 
             mask = scale_df['name'].str.contains('|'.join(stock_keywords), na=False)
@@ -325,7 +398,7 @@ class ETFScreener:
             code = row['code']
 
             # 检查费率
-            fee_rate = self.get_fee_rate(code)
+            fee_rate = self.get_fee_rate(code, etf_type=etf_type or '股票')
             if fee_rate > max_fee_rate:
                 continue
 
@@ -356,15 +429,18 @@ class ETFScreener:
         # 按流动性评分排序,取前top_n支
         results.sort(key=lambda x: x.liquidity_score, reverse=True)
 
-        # 按指数去重(相同指数只保留评分最高的一支)
+        # 按指数/债券品种去重(相同品种只保留评分最高的一支)
         if dedup_by_index:
             deduplicated = []
             seen_indexes = set()
 
             for result in results:
-                index_name = self.extract_index_name(result.name)
+                if etf_type == '债券':
+                    index_name = self.extract_bond_type(result.name)
+                else:
+                    index_name = self.extract_index_name(result.name)
 
-                # 如果该指数还没出现过,则加入结果
+                # 如果该指数/品种还没出现过,则加入结果
                 if index_name not in seen_indexes:
                     deduplicated.append(result)
                     seen_indexes.add(index_name)

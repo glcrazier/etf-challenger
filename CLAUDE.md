@@ -72,8 +72,15 @@ etf analyze 510300 --days 90
 # 查看持仓成分
 etf holdings 510300 --year 2024
 
+# 债券ETF分析（债券特定指标）⭐
+etf bond 511380             # 分析可转债ETF
+etf bond 511090             # 分析30年国债ETF
+etf bond 511010 --days 90  # 指定分析天数
+
 # 筛选优质ETF（按流动性和费率）⭐
-etf screen                              # 使用默认参数(去重)
+etf screen                              # 筛选股票ETF(默认)
+etf screen --bond                       # 筛选债券ETF
+etf screen --bond --top 15              # 筛选前15支债券ETF
 etf screen --no-dedup                   # 关闭指数去重
 etf screen --top 20 --min-scale 10      # 返回前20支,最小规模10亿
 etf screen --with-volume                # 包含成交量分析
