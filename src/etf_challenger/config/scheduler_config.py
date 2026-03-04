@@ -94,6 +94,7 @@ class MarketSettings:
     """市场设置"""
     morning_report_time: str = "10:00"
     afternoon_report_time: str = "14:30"
+    midday_report_time: str = "11:15"
 
 
 @dataclass
@@ -231,6 +232,7 @@ class SchedulerConfig:
             'market': {
                 'morning_report_time': self.market.morning_report_time,
                 'afternoon_report_time': self.market.afternoon_report_time,
+                'midday_report_time': self.market.midday_report_time,
             },
             'logging': {
                 'level': self.logging.level,

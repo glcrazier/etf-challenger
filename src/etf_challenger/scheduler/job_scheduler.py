@@ -17,6 +17,7 @@ from ..notification.email_service import EmailService
 from ..notification.report_digest import ReportDigest
 from ..scheduler.trading_calendar import TradingCalendar
 from ..scheduler.report_job import ReportJob
+from ..scheduler.unified_report_job import UnifiedReportJob
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class ReportScheduler:
         self.config = config
         self.calendar = TradingCalendar()
         self.report_job = ReportJob(config)
+        self.unified_report_job = UnifiedReportJob(config)
 
         # 初始化邮件服务（如果启用）
         self.email_service = None
@@ -105,9 +107,25 @@ class ReportScheduler:
             replace_existing=True
         )
 
+        # 添加盘中统一决策扫描任务
+        midday_time = self.config.market.midday_report_time.split(':')
+
+        self.scheduler.add_job(
+            func=self._execute_midday_report,
+            trigger=CronTrigger(
+                hour=int(midday_time[0]),
+                minute=int(midday_time[1]),
+                timezone='Asia/Shanghai'
+            ),
+            id='midday_report',
+            name='盘中决策扫描',
+            replace_existing=True
+        )
+
         self.scheduler.start()
         logger.info("调度器已启动")
         logger.info(f"早盘报告: 每个交易日 {self.config.market.morning_report_time}")
+        logger.info(f"盘中决策扫描: 每个交易日 {self.config.market.midday_report_time}")
         logger.info(f"尾盘报告: 每个交易日 {self.config.market.afternoon_report_time}")
 
     def stop(self):
@@ -136,6 +154,27 @@ class ReportScheduler:
         except Exception as e:
             logger.error(f"早盘报告生成失败: {e}", exc_info=True)
             self._send_error_notification('morning', str(e))
+
+    def _execute_midday_report(self):
+        """执行盘中统一决策扫描（带交易日检查）"""
+        if not self.calendar.is_trading_day(datetime.now()):
+            logger.info("今日非交易日，跳过盘中决策扫描")
+            return
+
+        logger.info("开始生成盘中决策扫描...")
+
+        try:
+            result = self.unified_report_job.execute(session='midday')
+
+            # 发送邮件通知
+            if result.success and self.email_service and self.config.email.send_daily_summary:
+                self._send_email_notification('midday', result)
+
+            logger.info(f"盘中决策扫描完成: {result}")
+
+        except Exception as e:
+            logger.error(f"盘中决策扫描失败: {e}", exc_info=True)
+            self._send_error_notification('midday', str(e))
 
     def _execute_afternoon_report(self):
         """执行尾盘报告（带交易日检查）"""
@@ -177,7 +216,8 @@ class ReportScheduler:
                 return
 
             # 生成邮件内容
-            session_cn = '早盘' if session == 'morning' else '尾盘'
+            session_names = {'morning': '早盘', 'midday': '盘中决策', 'afternoon': '尾盘'}
+            session_cn = session_names.get(session, session)
             subject = f"[ETF监控] {datetime.now():%Y-%m-%d} {session_cn}报告"
 
             html_content = ReportDigest.generate_html_digest(
@@ -210,7 +250,8 @@ class ReportScheduler:
             return
 
         try:
-            session_cn = '早盘' if session == 'morning' else '尾盘'
+            session_names = {'morning': '早盘', 'midday': '盘中决策', 'afternoon': '尾盘'}
+            session_cn = session_names.get(session, session)
             subject = f"[ETF监控] {datetime.now():%Y-%m-%d} {session_cn}报告生成失败"
 
             body = f"""

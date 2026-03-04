@@ -292,9 +292,31 @@ def holdings(code, limit, year):
 @cli.command()
 @click.argument('code')
 @click.option('--days', '-d', default=60, help='分析天数（建议30-90天）')
-def suggest(code, days):
+@click.option('--legacy', is_flag=True, help='使用旧版分析引擎')
+def suggest(code, days, legacy):
     """获取ETF买卖建议（综合技术分析）"""
     try:
+        if not legacy:
+            # 新版：统一决策框架
+            from ..analysis.decision_engine import DecisionEngine
+
+            engine = DecisionEngine(data_service=data_service)
+
+            # 债券ETF路由到专有分析
+            if engine.is_bond_etf(code):
+                console.print("[dim]检测到债券ETF，请使用 etf bond 命令获取专业分析[/dim]")
+                console.print(f"[dim]示例: etf bond {code}[/dim]")
+                return
+
+            with Progress() as progress:
+                task = progress.add_task("[cyan]正在执行4层分析...", total=None)
+                result = engine.analyze(code, days=days)
+                progress.update(task, completed=True)
+
+            _display_unified_analysis(code, result)
+            return
+
+        # 旧版引擎
         with Progress() as progress:
             task = progress.add_task("[cyan]正在分析数据...", total=None)
 
@@ -411,6 +433,185 @@ def _display_trading_signal(code, name, signal, df):
     console.print("  • 技术分析存在滞后性，市场随时可能变化")
     console.print("  • 请结合基本面分析和自身风险承受能力做决策")
     console.print(f"  • 当前风险等级: [bold]{signal.risk_level}[/bold]")
+
+
+def _display_unified_analysis(code, result):
+    """显示统一决策框架分析结果"""
+    from ..models.decision import RegimeType, FundGradeLevel
+
+    # 确定整体色调
+    timing = result.timing
+    if timing.action == "买入":
+        main_color = "green"
+    elif timing.action == "卖出":
+        main_color = "red"
+    else:
+        main_color = "yellow"
+
+    # 标题
+    console.print(Panel(
+        f"[bold]{result.name}[/bold] ({code})\n"
+        f"综合建议: [{main_color}]{timing.action}[/{main_color}]  "
+        f"置信度: [{main_color}]{timing.confidence:.0f}%[/{main_color}]",
+        title="统一决策分析",
+        border_style=main_color,
+    ))
+
+    # Layer 1: 市场状态
+    regime = result.regime
+    regime_colors = {
+        RegimeType.CRISIS: "red",
+        RegimeType.TRENDING_UP: "green",
+        RegimeType.TRENDING_DOWN: "red",
+        RegimeType.RANGING: "yellow",
+    }
+    r_color = regime_colors.get(regime.regime, "white")
+    console.print(Panel(
+        f"[{r_color}]{regime.regime.value}[/{r_color}]\n\n{regime.narrative}",
+        title="Layer 1 · 市场环境",
+        border_style="blue",
+    ))
+
+    # Layer 2: 基金评级
+    fund = result.fund_grade
+    grade_colors = {
+        FundGradeLevel.A: "green",
+        FundGradeLevel.B: "cyan",
+        FundGradeLevel.C: "yellow",
+        FundGradeLevel.D: "red",
+    }
+    g_color = grade_colors.get(fund.grade, "white")
+
+    dim_lines = []
+    for dim in fund.dimensions:
+        bar_len = int(dim.score / 25 * 10)
+        bar = "█" * bar_len + "░" * (10 - bar_len)
+        dim_lines.append(f"  {dim.name:<6} {bar} {dim.score:.0f}/25  {dim.detail}")
+    dim_text = "\n".join(dim_lines)
+
+    console.print(Panel(
+        f"评级: [{g_color}]{fund.grade.value}[/{g_color}]（{fund.total_score:.0f}分）\n\n{dim_text}",
+        title="Layer 2 · 基金评价",
+        border_style="blue",
+    ))
+
+    # Layer 3: 时机分析
+    ch_lines = []
+    for ch in timing.channels:
+        if ch.score > 0.1:
+            ch_color = "green"
+            arrow = "↗"
+        elif ch.score < -0.1:
+            ch_color = "red"
+            arrow = "↘"
+        else:
+            ch_color = "yellow"
+            arrow = "→"
+        ch_lines.append(
+            f"  {ch.name:<6} [{ch_color}]{arrow} {ch.score:+.2f}[/{ch_color}]  "
+            f"(权重{ch.weight:.0f}%)  {ch.detail}"
+        )
+    ch_text = "\n".join(ch_lines)
+
+    console.print(Panel(
+        f"综合得分: [{main_color}]{timing.composite_score:+.3f}[/{main_color}]  "
+        f"建议: [{main_color}]{timing.action}[/{main_color}]\n\n{ch_text}",
+        title="Layer 3 · 时机分析",
+        border_style="blue",
+    ))
+
+    # Layer 4: 持仓建议（如果有）
+    if result.portfolio:
+        port = result.portfolio
+        port_lines = []
+        if port.correlated_holding:
+            port_lines.append(f"  最大相关性: {port.max_correlation:.2f}（{port.correlated_holding}）")
+        port_lines.append(f"  建议仓位: {port.suggested_pct:.0f}%")
+        if port.tranches:
+            port_lines.append(f"  分批买入:")
+            for t in port.tranches:
+                port_lines.append(f"    第{t.tranche_no}批: {t.price:.3f} ({t.pct_of_position:.1f}%)")
+        for w in port.warnings:
+            port_lines.append(f"  [yellow]⚠ {w}[/yellow]")
+
+        console.print(Panel(
+            "\n".join(port_lines),
+            title="Layer 4 · 持仓建议",
+            border_style="blue",
+        ))
+
+    # 综合结论
+    console.print(Panel(
+        result.conclusion,
+        title="综合结论",
+        border_style=main_color,
+    ))
+
+    # 风险提示
+    console.print("\n[bold yellow]⚠️ 风险提示:[/bold yellow]")
+    console.print("  • 本建议仅供参考，不构成投资建议")
+    if result.risks:
+        for risk in result.risks:
+            console.print(f"  • {risk}")
+    console.print("  • 请结合基本面分析和自身风险承受能力做决策")
+
+
+def _format_unified_for_report(result):
+    """将统一分析结果格式化为Markdown文本，用于插入报告"""
+    lines = []
+    lines.append(f"# 统一决策分析 - {result.name} ({result.code})")
+    lines.append("")
+
+    # Layer 1
+    r = result.regime
+    lines.append("## Layer 1: 市场环境")
+    lines.append(f"**状态: {r.regime.value}**")
+    lines.append("")
+    lines.append(r.narrative)
+    lines.append("")
+
+    # Layer 2
+    f = result.fund_grade
+    lines.append("## Layer 2: 基金评价")
+    lines.append(f"**评级: {f.grade.value}（{f.total_score:.0f}分）**")
+    lines.append("")
+    lines.append("| 维度 | 评分 | 详情 |")
+    lines.append("|------|------|------|")
+    for dim in f.dimensions:
+        lines.append(f"| {dim.name} | {dim.score:.0f}/25 | {dim.detail} |")
+    lines.append("")
+
+    # Layer 3
+    t = result.timing
+    lines.append("## Layer 3: 时机分析")
+    lines.append(f"**建议: {t.action}  置信度: {t.confidence:.0f}%**")
+    lines.append("")
+    lines.append("| 通道 | 信号 | 权重 | 详情 |")
+    lines.append("|------|------|------|------|")
+    for ch in t.channels:
+        direction = "看涨" if ch.score > 0.1 else ("看跌" if ch.score < -0.1 else "中性")
+        lines.append(f"| {ch.name} | {direction}({ch.score:+.2f}) | {ch.weight:.0f}% | {ch.detail} |")
+    lines.append("")
+
+    # Layer 4
+    if result.portfolio:
+        p = result.portfolio
+        lines.append("## Layer 4: 持仓建议")
+        lines.append(f"- 建议仓位: {p.suggested_pct:.0f}%")
+        if p.correlated_holding:
+            lines.append(f"- 最大相关性: {p.max_correlation:.2f}（{p.correlated_holding}）")
+        if p.tranches:
+            lines.append("- 分批买入:")
+            for tr in p.tranches:
+                lines.append(f"  - 第{tr.tranche_no}批: {tr.price:.3f} ({tr.pct_of_position:.1f}%)")
+        lines.append("")
+
+    # 结论
+    lines.append("## 综合结论")
+    lines.append(result.conclusion)
+    lines.append("")
+
+    return "\n".join(lines)
 
 
 @cli.command()
@@ -540,6 +741,218 @@ def batch(pool, days, output, format, list_pools):
         console.print(f"[red]错误: {str(e)}[/red]")
         import traceback
         traceback.print_exc()
+
+
+@cli.command()
+@click.option('--pool', '-p', default=None, help='ETF池名称(不指定则使用默认池)')
+@click.option('--days', '-d', default=60, help='分析天数')
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--format', '-f', type=click.Choice(['markdown', 'html']), default='markdown', help='报告格式')
+@click.option('--list-pools', is_flag=True, help='列出所有可用的ETF池')
+@click.option('--all-pools', '-a', is_flag=True, help='扫描所有ETF池（去重合并）')
+@click.option('--email', '-e', is_flag=True, help='发送邮件通知（使用scheduler_config.toml中的邮件配置）')
+def scan(pool, days, output, format, list_pools, all_pools, email):
+    """使用统一决策框架扫描ETF池（4层分析）
+
+    基于DecisionEngine对ETF池中所有ETF执行市场环境、基金评级、
+    时机分析、持仓建议的4层综合分析，生成决策扫描报告。
+
+    示例:
+        etf scan                                # 扫描默认池
+        etf scan --pool 宽基指数                # 扫描指定池
+        etf scan --all-pools                    # 扫描所有池（去重合并）
+        etf scan --all-pools --email            # 扫描所有池并发送邮件
+        etf scan --format html -o scan.html     # 生成HTML报告
+        etf scan --list-pools                   # 查看所有池
+    """
+    from ..analysis.unified_batch_reporter import UnifiedBatchReporter
+
+    try:
+        reporter = UnifiedBatchReporter()
+
+        # 列出所有池
+        if list_pools:
+            pools = reporter.get_pool_list()
+            console.print("\n[bold]可用的ETF池:[/bold]\n")
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("池名称", style="cyan")
+            table.add_column("描述")
+            table.add_column("ETF数量", justify="right")
+
+            for pool_name in pools:
+                pool_info = reporter.config['pools'][pool_name]
+                table.add_row(
+                    pool_name,
+                    pool_info.get('description', 'N/A'),
+                    str(len(pool_info['etfs']))
+                )
+
+            console.print(table)
+            console.print(f"\n[dim]默认池: {reporter.config.get('default_pool', 'N/A')}[/dim]")
+            console.print(f"[dim]配置文件: {reporter.config_path}[/dim]\n")
+            return
+
+        # 生成扫描报告
+        if all_pools:
+            # 扫描所有池
+            total_etfs = set()
+            for pn in reporter.get_pool_list():
+                total_etfs.update(reporter.get_pool_etfs(pn))
+            scan_label = f"正在扫描所有池 {len(total_etfs)} 只ETF（4层分析）..."
+            display_pool_name = "全部ETF池"
+        else:
+            pool_name = pool or reporter.config.get('default_pool', '宽基指数')
+            scan_label = f"正在扫描 {len(reporter.get_pool_etfs(pool_name))} 只ETF（4层分析）..."
+            display_pool_name = pool_name
+
+        with Progress() as progress:
+            task = progress.add_task(f"[cyan]{scan_label}", total=None)
+
+            if all_pools:
+                content, results = reporter.generate_all_pools_report(
+                    days=days,
+                    output_format=format
+                )
+            else:
+                content, results = reporter.generate_report(
+                    pool_name=pool_name,
+                    days=days,
+                    output_format=format
+                )
+
+            progress.update(task, completed=True)
+
+        # 保存报告
+        if output:
+            output_path = output
+        else:
+            ext = 'md' if format == 'markdown' else 'html'
+            output_path = f"etf_scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        console.print(f"\n[green]✓ 决策扫描报告已生成: {output_path}[/green]\n")
+
+        # 显示摘要
+        console.print("[bold]📊 扫描摘要[/bold]\n")
+        console.print(f"ETF池: {display_pool_name}")
+        console.print(f"分析天数: {days}天")
+        console.print(f"成功分析: {len(results)}只\n")
+
+        # 市场环境
+        if results:
+            regime = results[0].analysis.regime
+            regime_colors = {"危机": "red", "上升趋势": "green", "下降趋势": "red", "震荡": "yellow"}
+            r_color = regime_colors.get(regime.regime.value, "white")
+            console.print(f"[bold]市场环境:[/bold] [{r_color}]{regime.regime.value}[/{r_color}]\n")
+
+        # 分类统计
+        buy_count = sum(1 for r in results if r.action == "买入")
+        sell_count = sum(1 for r in results if r.action == "卖出")
+        hold_count = sum(1 for r in results if r.action == "持有")
+
+        console.print(f"[green]📈 建议买入: {buy_count}只[/green]")
+        console.print(f"[yellow]➡️  建议持有: {hold_count}只[/yellow]")
+        console.print(f"[red]📉 建议卖出: {sell_count}只[/red]\n")
+
+        # 综合排名Top5
+        top_n = min(5, len(results))
+        if top_n > 0:
+            console.print(f"[bold]🏆 综合排名Top{top_n}[/bold]\n")
+
+            rank_table = Table(show_header=True, header_style="bold magenta")
+            rank_table.add_column("排名", style="cyan", justify="center")
+            rank_table.add_column("名称", style="white")
+            rank_table.add_column("代码", style="cyan")
+            rank_table.add_column("评级", justify="center")
+            rank_table.add_column("建议", justify="center")
+            rank_table.add_column("得分", justify="right")
+            rank_table.add_column("置信度", justify="right")
+
+            for i, r in enumerate(results[:top_n], 1):
+                action_color = "green" if r.action == "买入" else ("red" if r.action == "卖出" else "yellow")
+                rank_table.add_row(
+                    f"#{i}",
+                    r.name,
+                    r.code,
+                    f"{r.grade}({r.grade_score:.0f})",
+                    f"[{action_color}]{r.action}[/{action_color}]",
+                    f"{r.score:+.3f}",
+                    f"{r.confidence:.0f}%"
+                )
+
+            console.print(rank_table)
+
+        console.print("\n[dim]详细报告请查看生成的文件[/dim]\n")
+
+        # 发送邮件
+        if email:
+            _send_scan_email(reporter, days, results, all_pools,
+                             pool_name=None if all_pools else display_pool_name)
+
+    except FileNotFoundError as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        console.print("\n[yellow]提示: 请确保 etf_pool.json 配置文件存在[/yellow]")
+    except Exception as e:
+        console.print(f"[red]错误: {str(e)}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+def _send_scan_email(reporter, days, results, all_pools, pool_name=None):
+    """发送决策扫描报告邮件"""
+    from ..config.scheduler_config import SchedulerConfig
+    from ..notification.email_service import EmailService
+
+    try:
+        config = SchedulerConfig.from_file()
+
+        if not config.email.enabled:
+            console.print("[yellow]邮件功能未启用，请检查 scheduler_config.toml 中的 email 配置[/yellow]")
+            return
+
+        errors = config.email.validate()
+        if errors:
+            console.print(f"[red]邮件配置不完整: {', '.join(errors)}[/red]")
+            return
+
+        # 生成HTML版报告作为邮件内容
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在生成邮件内容...", total=None)
+            if all_pools:
+                html_content, _ = reporter.generate_all_pools_report(
+                    days=days,
+                    output_format='html'
+                )
+                label = "全部ETF池"
+            else:
+                html_content, _ = reporter.generate_report(
+                    pool_name=pool_name,
+                    days=days,
+                    output_format='html'
+                )
+                label = pool_name
+            progress.update(task, completed=True)
+
+        # 发送邮件
+        email_service = EmailService(config.email)
+        subject = f"[ETF决策扫描] {datetime.now():%Y-%m-%d} {label} ({len(results)}只ETF)"
+
+        with Progress() as progress:
+            task = progress.add_task("[cyan]正在发送邮件...", total=None)
+            email_service.send_email(
+                subject=subject,
+                body=html_content,
+                body_type='html'
+            )
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓ 邮件已发送至: {', '.join(config.email.recipients)}[/green]")
+
+    except Exception as e:
+        console.print(f"[red]邮件发送失败: {e}[/red]")
 
 
 def _save_screen_results_to_pool(results, pool_name, etf_type, screener, min_scale, max_fee):
@@ -953,9 +1366,26 @@ if __name__ == '__main__':
 @click.option('--format', '-f', type=click.Choice(['markdown', 'html', 'json']), default='markdown', help='报告格式')
 @click.option('--days', '-d', default=60, help='历史数据天数')
 @click.option('--year', '-y', default='2024', help='持仓数据年份')
-def report(code, output, format, days, year):
+@click.option('--legacy', is_flag=True, help='使用旧版分析引擎')
+def report(code, output, format, days, year, legacy):
     """生成ETF综合分析报告"""
     from ..analysis.report import ReportGenerator, ETFAnalysisReport
+
+    # 新版引擎：在报告开头插入4层叙事分析
+    unified_sections = None
+    if not legacy:
+        try:
+            from ..analysis.decision_engine import DecisionEngine
+            engine = DecisionEngine(data_service=data_service)
+            if not engine.is_bond_etf(code):
+                with Progress() as progress:
+                    task = progress.add_task("[cyan]正在执行决策分析...", total=None)
+                    unified_result = engine.analyze(code, days=days)
+                    progress.update(task, completed=True)
+
+                unified_sections = _format_unified_for_report(unified_result)
+        except Exception:
+            pass  # 回退到纯旧版报告
 
     try:
         with Progress() as progress:
@@ -1100,6 +1530,18 @@ def report(code, output, format, days, year):
             else:  # json
                 content = generator.generate_json(report_obj)
                 ext = 'json'
+
+            # 插入统一决策分析部分（如果有）
+            if unified_sections and format in ('markdown', 'html'):
+                if format == 'markdown':
+                    content = unified_sections + "\n\n---\n\n" + content
+                else:
+                    # HTML: 在 <body> 开头插入
+                    content = content.replace(
+                        '<body>',
+                        '<body>\n' + unified_sections + '\n<hr>\n',
+                        1
+                    )
 
             progress.update(task, completed=True)
 

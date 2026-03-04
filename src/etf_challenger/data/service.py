@@ -493,6 +493,116 @@ class ETFDataService:
 
         return premium_list
 
+    def get_index_historical_data(
+        self,
+        index_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        获取指数历史行情数据
+
+        Args:
+            index_code: 指数代码（如：000300 表示沪深300）
+            start_date: 开始日期（格式：YYYYMMDD），默认为1年前
+            end_date: 结束日期（格式：YYYYMMDD），默认为今天
+
+        Returns:
+            历史行情DataFrame，字段与ETF历史数据一致
+        """
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y%m%d")
+        if start_date is None:
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+
+        cache_key = f"index_{index_code}_{start_date}_{end_date}"
+        if cache_key in self._hist_cache:
+            cache_time = self._hist_cache_time.get(cache_key)
+            if cache_time and (datetime.now() - cache_time).seconds < 3600:
+                return self._hist_cache[cache_key]
+
+        try:
+            df = ak.stock_zh_index_daily_em(
+                symbol=index_code,
+                start_date=start_date,
+                end_date=end_date
+            )
+            if df is not None and not df.empty:
+                # 规范化字段名以匹配ETF历史数据格式
+                rename_map = {}
+                if 'date' in df.columns:
+                    rename_map['date'] = '日期'
+                if 'open' in df.columns:
+                    rename_map['open'] = '开盘'
+                if 'close' in df.columns:
+                    rename_map['close'] = '收盘'
+                if 'high' in df.columns:
+                    rename_map['high'] = '最高'
+                if 'low' in df.columns:
+                    rename_map['low'] = '最低'
+                if 'volume' in df.columns:
+                    rename_map['volume'] = '成交量'
+                if rename_map:
+                    df = df.rename(columns=rename_map)
+
+                # 确保日期列为字符串格式
+                if '日期' in df.columns:
+                    df['日期'] = pd.to_datetime(df['日期']).dt.strftime('%Y-%m-%d')
+
+                self._hist_cache[cache_key] = df
+                self._hist_cache_time[cache_key] = datetime.now()
+                return df
+        except Exception:
+            pass
+
+        # 备用：尝试通过BaoStock获取指数数据
+        try:
+            if index_code.startswith('39'):
+                bs_code = f"sz.{index_code}"
+            else:
+                bs_code = f"sh.{index_code}"
+
+            start_fmt = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
+            end_fmt = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+
+            lg = bs.login()
+            if lg.error_code != '0':
+                raise Exception(f"BaoStock登录失败: {lg.error_msg}")
+
+            try:
+                rs = bs.query_history_k_data_plus(
+                    bs_code,
+                    "date,open,high,low,close,volume",
+                    start_date=start_fmt,
+                    end_date=end_fmt,
+                    frequency="d"
+                )
+
+                data_list = []
+                while rs.next():
+                    data_list.append(rs.get_row_data())
+
+                if not data_list:
+                    return pd.DataFrame()
+
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                df_converted = pd.DataFrame({
+                    '日期': pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d'),
+                    '开盘': pd.to_numeric(df['open'], errors='coerce'),
+                    '收盘': pd.to_numeric(df['close'], errors='coerce'),
+                    '最高': pd.to_numeric(df['high'], errors='coerce'),
+                    '最低': pd.to_numeric(df['low'], errors='coerce'),
+                    '成交量': pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype(int),
+                })
+
+                self._hist_cache[cache_key] = df_converted
+                self._hist_cache_time[cache_key] = datetime.now()
+                return df_converted
+            finally:
+                bs.logout()
+        except Exception as e:
+            raise Exception(f"获取指数{index_code}历史数据失败: {str(e)}")
+
     def search_etf(self, keyword: str) -> pd.DataFrame:
         """
         搜索ETF
