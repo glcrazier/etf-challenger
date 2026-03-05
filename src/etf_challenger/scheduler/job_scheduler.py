@@ -166,15 +166,37 @@ class ReportScheduler:
         try:
             result = self.unified_report_job.execute(session='midday')
 
-            # 发送邮件通知
+            # 发送邮件通知（使用UnifiedBatchReporter直接生成HTML，而非ReportDigest）
             if result.success and self.email_service and self.config.email.send_daily_summary:
-                self._send_email_notification('midday', result)
+                self._send_midday_email()
 
             logger.info(f"盘中决策扫描完成: {result}")
 
         except Exception as e:
             logger.error(f"盘中决策扫描失败: {e}", exc_info=True)
             self._send_error_notification('midday', str(e))
+
+    def _send_midday_email(self):
+        """使用UnifiedBatchReporter生成HTML并发送盘中决策邮件"""
+        try:
+            reporter = self.unified_report_job.reporter
+            html_content, results = reporter.generate_all_pools_report(
+                days=self.config.report.analysis_days,
+                output_format='html'
+            )
+
+            subject = f"[ETF决策扫描] {datetime.now():%Y-%m-%d} 盘中决策 ({len(results)}只ETF)"
+
+            self.email_service.send_email(
+                subject=subject,
+                body=html_content,
+                body_type='html'
+            )
+
+            logger.info("盘中决策扫描邮件已发送")
+
+        except Exception as e:
+            logger.error(f"发送盘中决策邮件失败: {e}", exc_info=True)
 
     def _execute_afternoon_report(self):
         """执行尾盘报告（带交易日检查）"""
